@@ -1,6 +1,7 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
 
 # Lightweight gate: lint the shell + validate the Packer templates' syntax. It does

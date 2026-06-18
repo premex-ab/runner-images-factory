@@ -23,8 +23,8 @@ cd runner-images-factory
 
 ./build.sh list
 
-# Linux — fully automatic (pulls the cloud image itself):
-./build.sh ubuntu-2404            # coming next
+# Linux — fully automatic (pulls the cloud image itself, no media needed):
+./build.sh ubuntu-2404
 
 # Windows — you supply the eval ISO (no product key needed):
 #   https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025
@@ -42,6 +42,8 @@ Add `--upload` (with `NAS_DEST=user@nas:/volume1/images`) to publish to your pri
   `ri_ref`), puts their `ImageHelpers` module on `PSModulePath`, ships their
   `toolset.json`, stubs out their Pester validation, and runs a **curated subset** of
   their `Install-*.ps1` — so the toolchain matches `windows-latest`, tracked by the tag.
+  The Ubuntu cell does the same over SSH: it stages their `helpers/` + `build/` scripts +
+  `toolset.json` into `/imagegeneration` and runs a curated subset of `install-*.sh`.
   We never edit their tree (consume, don't fork) → no merge conflicts.
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
   boot-prompt helper, output + checksum, optional NAS upload.
@@ -52,12 +54,12 @@ Add `--upload` (with `NAS_DEST=user@nas:/volume1/images`) to publish to your pri
 | Image | State | Toolchain |
 |---|---|---|
 | `windows-2025` | ✅ working | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
-| `ubuntu-2404` | ⏳ next | — |
+| `ubuntu-2404` | ✅ working | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `windows-2022`, `ubuntu-2022` | ⏳ planned | — |
 
 ## Roadmap
 
-- [ ] `ubuntu-2404` cell (the fully-automatic example)
+- [x] `ubuntu-2404` cell (the fully-automatic example) — builds green (19 G qcow2)
 - [ ] Vendor `runner-images` as a submodule + a daily **bump → build → test → promote** pipeline (AI agent for triage only)
 - [ ] Self-hosted build runners (Linux for win/ubuntu, Mac for macOS)
 - [ ] Expand the curated toolchain toward `windows-latest` (Python/Go/.NET/…), with real Pester validation

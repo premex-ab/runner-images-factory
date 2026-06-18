@@ -52,14 +52,17 @@ case "$IMAGE" in
   ubuntu-*)
     require_linux_kvm
     ensure_packer
-    die "the '$IMAGE' cell isn't implemented yet — windows-2025 is the working example. (next up)" ;;
+    cloud="$HERE/.cache/${IMAGE}-cloud.img"
+    download_cloud_image "$UBUNTU_2404_CLOUD_IMAGE" "$cloud"
+    note "building $IMAGE (~25 min) — log: $OUT/build.log"
+    build_ubuntu "$IMGDIR" "$OUT" "$cloud" ;;
   *)
     die "no builder for '$IMAGE'" ;;
 esac
 
-qcow="$(ls "$OUT"/*.qcow2 2>/dev/null | head -1)"
+qcow="$(find "$OUT" -name '*.qcow2' 2>/dev/null | head -1)"
 [ -n "$qcow" ] || die "build produced no qcow2 (see $OUT/build.log)"
-(cd "$OUT" && sha256sum "$(basename "$qcow")" > "$(basename "$qcow").sha256")
+(cd "$(dirname "$qcow")" && sha256sum "$(basename "$qcow")" > "$(basename "$qcow").sha256")
 note "done: $qcow ($(du -h "$qcow" | cut -f1))"
 [ "$UPLOAD" = 1 ] && upload_to_nas "$IMAGE" "$qcow"
 exit 0

@@ -1,6 +1,7 @@
 # build outputs + downloaded tools
 out/
 .bin/
+.cache/
 *.qcow2
 *.qcow2.sha256
 *.iso
