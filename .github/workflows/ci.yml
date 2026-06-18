@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+# Lightweight gate: lint the shell + validate the Packer templates' syntax. It does
+# NOT build an image (that needs a Linux+KVM self-hosted runner; separate workflow).
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck >/dev/null
+          # -S error: block on real bugs, not style nits.
+          shellcheck -S error build.sh lib/*.sh images/*/bootspam.sh
+
+      - name: packer validate (syntax-only)
+        run: |
+          curl -fsSL -o /tmp/packer.zip https://releases.hashicorp.com/packer/1.11.2/packer_1.11.2_linux_amd64.zip
+          unzip -oq /tmp/packer.zip -d /tmp
+          for d in images/*/; do
+            echo "== validate $d =="
+            ( cd "$d" && /tmp/packer init . >/dev/null && /tmp/packer validate -syntax-only . )
+          done

@@ -1,0 +1,10 @@
+# build outputs + downloaded tools
+out/
+.bin/
+*.qcow2
+*.qcow2.sha256
+*.iso
+build.log
+# packer
+.packer.d/
+crash.log
