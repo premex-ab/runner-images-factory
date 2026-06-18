@@ -124,7 +124,6 @@ build {
       "bash $i/install-dotnetcore-sdk.sh",
       "bash $i/install-cmake.sh",
       "bash $i/install-clang.sh",
-      "bash $i/configure-image-data.sh",
     ]
   }
 
