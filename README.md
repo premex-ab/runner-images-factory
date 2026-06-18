@@ -54,12 +54,12 @@ Add `--upload` (with `NAS_DEST=user@nas:/volume1/images`) to publish to your pri
 | Image | State | Toolchain |
 |---|---|---|
 | `windows-2025` | ✅ working | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
-| `ubuntu-2404` | 🔨 added (build-verifying) | git, docker, node, python, .NET, gcc/clang, cmake, pwsh (from runner-images, pinned) |
+| `ubuntu-2404` | ✅ working | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `windows-2022`, `ubuntu-2022` | ⏳ planned | — |
 
 ## Roadmap
 
-- [ ] `ubuntu-2404` cell (the fully-automatic example)
+- [x] `ubuntu-2404` cell (the fully-automatic example) — builds green (19 G qcow2)
 - [ ] Vendor `runner-images` as a submodule + a daily **bump → build → test → promote** pipeline (AI agent for triage only)
 - [ ] Self-hosted build runners (Linux for win/ubuntu, Mac for macOS)
 - [ ] Expand the curated toolchain toward `windows-latest` (Python/Go/.NET/…), with real Pester validation
