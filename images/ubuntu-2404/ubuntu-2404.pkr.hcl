@@ -74,7 +74,7 @@ build {
   provisioner "shell" {
     inline = [
       "set -ex",
-      "sudo mkdir -p /imagegeneration/helpers /imagegeneration/installers /opt/hostedtoolcache",
+      "sudo mkdir -p /imagegeneration/helpers /imagegeneration/installers",
       "curl -fsSL 'https://github.com/actions/runner-images/archive/refs/tags/${local.ri_ref}.tar.gz' -o /tmp/ri.tar.gz",
       "mkdir -p /tmp/ri && tar -xzf /tmp/ri.tar.gz -C /tmp/ri --strip-components=1",
       "sudo cp -r /tmp/ri/images/ubuntu/scripts/helpers/. /imagegeneration/helpers/",
@@ -108,6 +108,7 @@ build {
       "bash $i/configure-apt-sources.sh",
       "bash $i/configure-apt.sh",
       "bash $i/configure-limits.sh",
+      "bash $i/install-ms-repos.sh",
       "bash $i/install-apt-vital.sh",
       "bash $i/install-apt-common.sh",
       "bash $i/configure-environment.sh",
