@@ -80,7 +80,9 @@ build {
       "sudo cp -r /tmp/ri/images/ubuntu/scripts/helpers/. /imagegeneration/helpers/",
       "sudo cp -r /tmp/ri/images/ubuntu/scripts/build/. /imagegeneration/installers/",
       "sudo cp /tmp/ri/images/ubuntu/toolsets/toolset-2404.json /imagegeneration/installers/toolset.json",
-      "printf '#!/bin/bash\\ninvoke_tests() { echo \"[skip tests] $*\"; }\\n' | sudo tee /imagegeneration/helpers/invoke-tests.sh >/dev/null",
+      # Every script does `source install.sh`, so define a no-op invoke_tests there. Their
+      # real one runs PowerShell Pester against test files + infra we don't ship.
+      "printf '\\ninvoke_tests() { echo \"[skip tests] $*\"; }\\n' | sudo tee -a /imagegeneration/helpers/install.sh >/dev/null",
       "sudo chmod -R 777 /imagegeneration",
       "rm -rf /tmp/ri /tmp/ri.tar.gz",
     ]
