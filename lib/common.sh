@@ -53,6 +53,35 @@ build_windows() {
   wait "$pk"
 }
 
+# Ubuntu cloud image — the freely-redistributable base; we download it for the user.
+UBUNTU_2404_CLOUD_IMAGE="${UBUNTU_2404_CLOUD_IMAGE:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
+
+download_cloud_image() {
+  local url="$1" dest="$2"
+  [ -f "$dest" ] && { note "cloud image cached: $dest"; return 0; }
+  note "downloading Ubuntu cloud image (one-time, ~600 MB)"
+  mkdir -p "$(dirname "$dest")"
+  curl -fSL --retry 3 -o "${dest}.part" "$url"
+  mv "${dest}.part" "$dest"
+}
+
+# Build an Ubuntu image: boot the cloud qcow2 in QEMU, cloud-init creates a throwaway SSH
+# user (keypair generated here, never committed), Packer provisions over SSH. No boot
+# prompt to fight (the cloud image boots straight to cloud-init), so no bootspam.
+build_ubuntu() {
+  local imgdir="$1" out="$2" cloud_img="$3"
+  ssh-keygen -t ed25519 -f "$out/build-key" -N "" -q
+  cd "$imgdir"
+  "$PACKER" init . >/dev/null
+  "$PACKER" build \
+    -var "cloud_image=$cloud_img" \
+    -var "ssh_pubkey=$(cat "$out/build-key.pub")" \
+    -var "ssh_private_key_file=$out/build-key" \
+    -var "runner_version=$RUNNER_VERSION" \
+    -var "output_dir=$out/image" \
+    . >"$out/build.log" 2>&1
+}
+
 # Optional: push a built image to the NAS (private use). Set NAS_DEST=user@nas:/path.
 upload_to_nas() {
   local image="$1" qcow="$2"
