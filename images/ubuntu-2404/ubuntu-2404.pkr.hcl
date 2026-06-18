@@ -80,9 +80,11 @@ build {
       "sudo cp -r /tmp/ri/images/ubuntu/scripts/helpers/. /imagegeneration/helpers/",
       "sudo cp -r /tmp/ri/images/ubuntu/scripts/build/. /imagegeneration/installers/",
       "sudo cp /tmp/ri/images/ubuntu/toolsets/toolset-2404.json /imagegeneration/installers/toolset.json",
-      # Every script does `source install.sh`, so define a no-op invoke_tests there. Their
-      # real one runs PowerShell Pester against test files + infra we don't ship.
-      "printf '\\ninvoke_tests() { echo \"[skip tests] $*\"; }\\n' | sudo tee -a /imagegeneration/helpers/install.sh >/dev/null",
+      # Neutralize their Pester hook (no test files/infra shipped). Scripts source one of the
+      # helper libs and call invoke_tests; some resolve it to invoke-tests.sh (pwsh). No-op the
+      # function in every helper, and replace invoke-tests.sh itself.
+      "for h in /imagegeneration/helpers/*.sh; do printf '\\ninvoke_tests() { return 0; }\\n' | sudo tee -a \"$h\" >/dev/null; done",
+      "printf '#!/bin/bash\\ninvoke_tests() { return 0; }\\n' | sudo tee /imagegeneration/helpers/invoke-tests.sh >/dev/null",
       "sudo chmod -R 777 /imagegeneration",
       "rm -rf /tmp/ri /tmp/ri.tar.gz",
     ]
