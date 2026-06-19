@@ -26,7 +26,7 @@ locals {
   ri_ref = "ubuntu22/20260617.186"
 }
 
-source "qemu" "ubuntu2404" {
+source "qemu" "ubuntu2204" {
   iso_url        = var.cloud_image
   iso_checksum   = "none"
   disk_image     = true
@@ -66,7 +66,7 @@ source "qemu" "ubuntu2404" {
 }
 
 build {
-  sources = ["source.qemu.ubuntu2404"]
+  sources = ["source.qemu.ubuntu2204"]
 
   # 1. Stage actions/runner-images @ri_ref into the image (consume, don't fork): their
   #    helpers + build scripts + toolset.json, exactly where the scripts expect them. We

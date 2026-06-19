@@ -63,7 +63,8 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 |---|---|---|
 | `windows-2025` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
 | `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
-| `windows-2022`, `ubuntu-2022` | ⏳ planned | — |
+| `ubuntu-2204` | ✅ working + **verified** | same toolchain at 22.04 versions (python 3.10, gcc 11, clang 14) |
+| `windows-2022` | ⏳ planned (needs a Server 2022 ISO) | — |
 
 ## Roadmap
 
