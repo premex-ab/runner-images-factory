@@ -178,7 +178,9 @@ runcmd:
     exec > /dev/ttyS0 2>&1
     fail=0
     for _ in $(seq 1 30); do systemctl is-active docker >/dev/null 2>&1 && break; sleep 2; done
-    chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+    set -a; . /etc/environment 2>/dev/null; set +a
+    chk(){ printf 'CHECK %-7s ' "$1"; if timeout 25 bash -c "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+    have(){ printf 'TOOL %-10s ' "$1"; if timeout 25 bash -c "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo MISSING; fi; }
     chk docker "docker info"
     chk dotnet "dotnet --version"
     chk node   "node --version"
@@ -188,17 +190,33 @@ runcmd:
     chk cmake  "cmake --version"
     chk git    "git --version"
     chk pwsh   "pwsh --version"
+    # core 9 are the gate — print the result NOW, before the (best-effort) breadth sweep, so an
+    # image first-boot reboot mid-sweep can't mask a passing core verify.
     [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
+    # full-toolset breadth (informational — confirms parity beyond the curated core)
+    have java      "java -version"
+    have ruby      "ruby --version"
+    have php       "php --version"
+    have rust      "cargo --version"
+    have go        "ls /opt/hostedtoolcache/go"
+    have az        "az version"
+    have aws       "aws --version"
+    have gh        "gh --version"
+    have kubectl   "kubectl version --client"
+    have bazel     "bazel --version"
+    have brew      "/home/linuxbrew/.linuxbrew/bin/brew --version"
+    have toolcache "ls /opt/hostedtoolcache"
+    have android   "ls /usr/local/lib/android/sdk"
     poweroff
 SEED
   genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
-  timeout 360 qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+  timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
     -drive file="$wd/overlay.qcow2",if=virtio,format=qcow2 \
     -drive file="$wd/seed.iso",media=cdrom \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
   echo "--- verification output ---"
-  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  grep -aE 'CHECK |TOOL |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
   if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
     note "VERIFY PASS"; rm -rf "$wd"; return 0
   fi
@@ -246,7 +264,7 @@ SEED
     -netdev user,id=n0 -device e1000,netdev=n0 \
     -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
   echo "--- verification output ---"
-  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  grep -aE 'CHECK |TOOL |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
   if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
     note "VERIFY PASS"; rm -rf "$wd"; return 0
   fi

@@ -30,12 +30,12 @@ source "qemu" "ubuntu2404" {
   iso_url        = var.cloud_image
   iso_checksum   = "none"
   disk_image     = true
-  disk_size      = "60G"
+  disk_size      = "90G"
   format         = "qcow2"
   accelerator    = "kvm"
   qemuargs       = [["-cpu", "host"]]
-  cpus           = 4
-  memory         = 4096
+  cpus           = 6
+  memory         = 8192
   headless       = true
   net_device     = "virtio-net"
   disk_interface = "virtio"
@@ -85,14 +85,22 @@ build {
       # function in every helper, and replace invoke-tests.sh itself.
       "for h in /imagegeneration/helpers/*.sh; do printf '\\ninvoke_tests() { return 0; }\\n' | sudo tee -a \"$h\" >/dev/null; done",
       "printf '#!/bin/bash\\ninvoke_tests() { return 0; }\\n' | sudo tee /imagegeneration/helpers/invoke-tests.sh >/dev/null",
+      # install-*.ps1 Import tests/Helpers.psm1, which chain-imports helpers/Common.Helpers.psm1
+      # (Get-ToolsetContent etc.). Ship the REAL module so that chain works; only no-op
+      # Invoke-PesterTests (appended → last definition wins) so we skip their Pester run.
+      "sudo mkdir -p /imagegeneration/tests",
+      "sudo cp /tmp/ri/images/ubuntu/scripts/tests/Helpers.psm1 /imagegeneration/tests/Helpers.psm1",
+      "printf '\\nfunction Invoke-PesterTests { param($TestFile,$TestName) }\\n' | sudo tee -a /imagegeneration/tests/Helpers.psm1 >/dev/null",
       "sudo chmod -R 777 /imagegeneration",
       "rm -rf /tmp/ri /tmp/ri.tar.gz",
     ]
   }
 
-  # 2. Configure + install the curated common-CI toolchain in dependency order. Runs as
-  #    root with the env every runner-images script assumes; set -e → any failure fails the
-  #    build, set -x → the log shows which script ran. Bump the list to go fatter.
+  # 2. FULL runner-images toolset (parity with ubuntu-latest) — the complete ordered install
+  #    set from their build.ubuntu-24_04 template, minus only configure-apt-mock (Azure build
+  #    infra). Discovery mode: NO set -e — run every script, log @@@OK/@@@FAIL, and print
+  #    @@@FAILURES at the end, so one build surfaces the whole standalone-failure surface.
+  #    .ps1 run via pwsh (installed by install-powershell.sh earlier in the order).
   provisioner "shell" {
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
@@ -100,30 +108,20 @@ build {
       "IMAGE_FOLDER=/imagegeneration",
       "IMAGE_VERSION=${local.ri_ref}",
       "IMAGE_OS=ubuntu24",
+      "IMAGEDATA_FILE=/imagegeneration/imagedata.json",
       "DEBIAN_FRONTEND=noninteractive",
       "AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache",
     ]
     execute_command = "chmod +x {{ .Path }}; sudo -E bash -c '{{ .Vars }} {{ .Path }}'"
+    inline_shebang  = "/bin/bash"   # Packer defaults to "/bin/sh -e"; we need NO -e for discovery
     inline = [
-      "set -ex",
-      "i=$INSTALLER_SCRIPT_FOLDER",
-      "bash $i/configure-apt-sources.sh",
-      "bash $i/configure-apt.sh",
-      "bash $i/configure-limits.sh",
-      "bash $i/install-ms-repos.sh",
-      "bash $i/install-apt-vital.sh",
-      "bash $i/install-apt-common.sh",
-      "bash $i/configure-environment.sh",
-      "bash $i/install-powershell.sh",
-      "bash $i/install-git.sh",
-      "bash $i/install-gcc-compilers.sh",
-      "bash $i/install-container-tools.sh",
-      "bash $i/install-docker.sh",
-      "bash $i/install-nodejs.sh",
-      "bash $i/install-python.sh",
-      "bash $i/install-dotnetcore-sdk.sh",
-      "bash $i/install-cmake.sh",
-      "bash $i/install-clang.sh",
+      "set -x",
+      "i=$INSTALLER_SCRIPT_FOLDER; fails=''",
+      # configure-apt-mock (skipped, Azure infra) is what normally makes apt non-interactive
+      # this early; replicate just the assume-yes so install-ms-repos' dist-upgrade won't prompt.
+      "printf 'APT::Get::Assume-Yes \"true\";\\nAPT::Get::Fix-Broken \"true\";\\n' > /etc/apt/apt.conf.d/90assumeyes",
+      "for s in install-ms-repos.sh configure-apt-sources.sh configure-apt.sh configure-limits.sh configure-image-data.sh configure-environment.sh install-apt-vital.sh install-powershell.sh Install-PowerShellModules.ps1 Install-PowerShellAzModules.ps1 install-actions-cache.sh install-apt-common.sh install-azcopy.sh install-azure-cli.sh install-azure-devops-cli.sh install-bicep.sh install-apache.sh install-aws-tools.sh install-clang.sh install-swift.sh install-cmake.sh install-codeql-bundle.sh install-awf.sh install-container-tools.sh install-dotnetcore-sdk.sh install-microsoft-edge.sh install-gcc-compilers.sh install-firefox.sh install-gfortran.sh install-git.sh install-git-lfs.sh install-github-cli.sh install-google-chrome.sh install-google-cloud-cli.sh install-haskell.sh install-java-tools.sh install-kubernetes-tools.sh install-miniconda.sh install-kotlin.sh install-mysql.sh install-nginx.sh install-nvm.sh install-nodejs.sh install-bazel.sh install-php.sh install-postgresql.sh install-pulumi.sh install-ruby.sh install-rust.sh install-julia.sh install-selenium.sh install-packer.sh install-vcpkg.sh configure-dpkg.sh install-yq.sh install-android-sdk.sh install-pypy.sh install-python.sh install-zstd.sh install-ninja.sh install-docker.sh Install-Toolset.ps1 Configure-Toolset.ps1 install-pipx-packages.sh install-homebrew.sh configure-snap.sh configure-system.sh; do echo \"@@@RUN $s\"; if [ \"$${s##*.}\" = ps1 ]; then pwsh \"$i/$s\" </dev/null; else bash \"$i/$s\" </dev/null; fi; rc=$?; if [ $rc -ne 0 ]; then fails=\"$fails $s($rc)\"; echo \"@@@FAIL $s rc=$rc\"; else echo \"@@@OK $s\"; fi; done",
+      "echo \"@@@FAILURES:$fails\"",
     ]
   }
 
