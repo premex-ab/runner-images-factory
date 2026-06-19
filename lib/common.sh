@@ -46,7 +46,7 @@ build_windows() {
   local imgdir="$1" out="$2" iso="$3" pk
   cd "$imgdir"
   "$PACKER" init . >/dev/null
-  "$PACKER" build -var "windows_iso=$iso" -var "runner_version=$RUNNER_VERSION" -var "output_dir=$out" . >"$out/build.log" 2>&1 &
+  "$PACKER" build -var "windows_iso=$iso" -var "runner_version=$RUNNER_VERSION" -var "output_dir=$out/image" . >"$out/build.log" 2>&1 &
   pk=$!
   sleep 2
   "$imgdir/bootspam.sh" >>"$out/build.log" 2>&1 || true
