@@ -133,8 +133,8 @@ build {
     inline            = ["sudo reboot"]
   }
 
-  # 4. Post-reboot: runner-images cleanup, then generalize so each CoW clone boots fresh
-  #    from the orchestrator's cloud-init seed (reset cloud-init + machine-id, drop our
+  # 4. Post-reboot: runner-images cleanup, then generalize so each clone boots fresh from
+  #    its own cloud-init seed at deploy time (reset cloud-init + machine-id, drop the
   #    throwaway build key).
   provisioner "shell" {
     pause_before        = "30s"

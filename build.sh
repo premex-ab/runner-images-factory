@@ -3,7 +3,6 @@
 #   ./build.sh list
 #   ./build.sh ubuntu-2404
 #   ./build.sh windows-2025 --iso /path/to/server2025-eval.iso
-#   ./build.sh windows-2025 --iso ... --upload     # push to the NAS (NAS_DEST=...)
 # Output: out/<image>/<image>.qcow2 (+ .sha256). Bring your own OS media — see README.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -17,7 +16,7 @@ case "$cmd" in
     for d in "$HERE"/images/*/; do echo "  - $(basename "$d")"; done
     exit 0 ;;
   help | -h | --help)
-    sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
 esac
 
@@ -27,11 +26,9 @@ IMGDIR="$HERE/images/$IMAGE"
 [ -d "$IMGDIR" ] || die "unknown image '$IMAGE' (try: ./build.sh list)"
 
 ISO=""
-UPLOAD=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --iso) ISO="$2"; shift 2 ;;
-    --upload) UPLOAD=1; shift ;;
     *) die "unknown flag: $1" ;;
   esac
 done
@@ -64,5 +61,4 @@ qcow="$(find "$OUT" -name '*.qcow2' 2>/dev/null | head -1)"
 [ -n "$qcow" ] || die "build produced no qcow2 (see $OUT/build.log)"
 (cd "$(dirname "$qcow")" && sha256sum "$(basename "$qcow")" > "$(basename "$qcow").sha256")
 note "done: $qcow ($(du -h "$qcow" | cut -f1))"
-[ "$UPLOAD" = 1 ] && upload_to_nas "$IMAGE" "$qcow"
 exit 0

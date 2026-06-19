@@ -42,8 +42,8 @@
       <UserData>
         <ProductKey><WillShowUI>OnError</WillShowUI></ProductKey>
         <AcceptEula>true</AcceptEula>
-        <FullName>Baremetal</FullName>
-        <Organization>Baremetal</Organization>
+        <FullName>Runner</FullName>
+        <Organization>Runner</Organization>
       </UserData>
     </component>
   </settings>
