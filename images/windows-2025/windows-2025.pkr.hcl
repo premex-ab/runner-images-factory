@@ -191,9 +191,12 @@ build {
       "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
       "New-Item -ItemType Directory -Force -Path C:\\actions-runner | Out-Null",
       "$url = \"https://github.com/actions/runner/releases/download/v${var.runner_version}/actions-runner-win-x64-${var.runner_version}.zip\"",
-      "Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile C:\\actions-runner\\runner.zip",
-      "Expand-Archive -LiteralPath C:\\actions-runner\\runner.zip -DestinationPath C:\\actions-runner -Force",
-      "Remove-Item C:\\actions-runner\\runner.zip -Force",
+      "$zip = 'C:\\actions-runner\\runner.zip'",
+      "$ok = $false",
+      "for ($i = 1; $i -le 5; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $url -OutFile $zip; if ((Get-Item $zip).Length -gt 1MB) { $ok = $true; break } } catch { Write-Host \"runner download attempt $i failed: $_\" }; Start-Sleep 10 }",
+      "if (-not $ok) { throw 'actions-runner download failed after 5 attempts' }",
+      "Expand-Archive -LiteralPath $zip -DestinationPath C:\\actions-runner -Force",
+      "Remove-Item $zip -Force",
       "Write-Host 'actions-runner baked'",
     ]
   }
@@ -205,9 +208,15 @@ build {
     inline = [
       "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
       "$msi = 'C:\\cloudbase-init.msi'",
-      "Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudbase/cloudbase-init/releases/download/1.1.6/CloudbaseInitSetup_1_1_6_x64.msi' -OutFile $msi",
-      "Start-Process msiexec.exe -Wait -ArgumentList \"/i $msi /qn /norestart RUN_SERVICE_AS_LOCAL_SYSTEM=1\"",
+      "$url = 'https://github.com/cloudbase/cloudbase-init/releases/download/1.1.6/CloudbaseInitSetup_1_1_6_x64.msi'",
+      "$ok = $false",
+      "for ($i = 1; $i -le 5; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $url -OutFile $msi; if ((Get-Item $msi).Length -gt 1MB) { $ok = $true; break } } catch { Write-Host \"cloudbase-init download attempt $i failed: $_\" }; Start-Sleep 10 }",
+      "if (-not $ok) { throw 'cloudbase-init MSI download failed after 5 attempts' }",
+      "$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList \"/i $msi /qn /norestart RUN_SERVICE_AS_LOCAL_SYSTEM=1\"",
+      "if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw \"cloudbase-init msiexec failed: $($p.ExitCode)\" }",
+      "$cbidir = 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init'; if (-not (Test-Path $cbidir) -or @(Get-ChildItem $cbidir -Recurse -File -ErrorAction SilentlyContinue).Count -lt 50) { throw 'cloudbase-init install incomplete (dir missing or sparse)' }",
       "Remove-Item $msi -Force",
+      "Write-Host 'cloudbase-init installed'",
     ]
   }
 

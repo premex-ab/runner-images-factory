@@ -52,22 +52,23 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
   boot-prompt helper, output + checksum.
 - **`build.sh verify <image>`** — real verification: boots a CoW overlay of the built image
-  with a cloud-init seed that *runs* the toolchain (docker/dotnet/node/gcc/clang/…) and
-  reports pass/fail over serial. The genuine functional test — not just "scripts exited 0".
+  and *runs* the toolchain, reporting pass/fail over serial. Linux uses a cloud-init seed;
+  Windows uses a cloudbase-init `#ps1` seed writing to COM1. The genuine functional test —
+  not just "scripts exited 0".
 - **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-verify.
 
 ## Status
 
 | Image | State | Toolchain |
 |---|---|---|
-| `windows-2025` | ✅ working | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
+| `windows-2025` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
 | `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `windows-2022`, `ubuntu-2022` | ⏳ planned | — |
 
 ## Roadmap
 
 - [x] `ubuntu-2404` cell (the fully-automatic example) — builds green (19 G qcow2), boot-verified
-- [x] Real verification harness (`build.sh verify`) — boots the image + runs the toolchain (ubuntu done, windows next)
+- [x] Real verification harness (`build.sh verify`) — boots the image + runs the toolchain (ubuntu + windows verified)
 - [ ] Vendor `runner-images` as a submodule + a daily **bump → build → test → promote** pipeline (AI agent for triage only)
 - [ ] Self-hosted build runners (Linux for win/ubuntu, Mac for macOS)
 - [ ] Expand the curated toolchain toward `windows-latest` (Python/Go/.NET/…), with real Pester validation
