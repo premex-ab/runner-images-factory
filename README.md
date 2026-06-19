@@ -64,7 +64,10 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 | `windows-2025` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
 | `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `ubuntu-2204` | ✅ working + **verified** | same toolchain at 22.04 versions (python 3.10, gcc 11, clang 14) |
-| `windows-2022` | 🔨 cell ready — build+verify pending a Server 2022 ISO | pwsh, choco, 7zip, git, node, mingw, webview2 (win22 toolset, pinned) |
+| `windows-2022` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (win22 toolset, pinned) |
+
+**Parity: all four buildable OSes build _and_ boot-verify.** macOS can't be built off Apple
+hardware (a hard limit, not a gap we can close here).
 
 ## Roadmap
 
