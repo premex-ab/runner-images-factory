@@ -179,8 +179,8 @@ runcmd:
     fail=0
     for _ in $(seq 1 30); do systemctl is-active docker >/dev/null 2>&1 && break; sleep 2; done
     set -a; . /etc/environment 2>/dev/null; set +a
-    chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
-    have(){ printf 'TOOL %-10s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo MISSING; fi; }
+    chk(){ printf 'CHECK %-7s ' "$1"; if timeout 25 bash -c "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+    have(){ printf 'TOOL %-10s ' "$1"; if timeout 25 bash -c "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo MISSING; fi; }
     chk docker "docker info"
     chk dotnet "dotnet --version"
     chk node   "node --version"
@@ -208,7 +208,7 @@ runcmd:
     poweroff
 SEED
   genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
-  timeout 360 qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+  timeout 600 qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
     -drive file="$wd/overlay.qcow2",if=virtio,format=qcow2 \
     -drive file="$wd/seed.iso",media=cdrom \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
