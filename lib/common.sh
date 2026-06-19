@@ -190,6 +190,9 @@ runcmd:
     chk cmake  "cmake --version"
     chk git    "git --version"
     chk pwsh   "pwsh --version"
+    # core 9 are the gate — print the result NOW, before the (best-effort) breadth sweep, so an
+    # image first-boot reboot mid-sweep can't mask a passing core verify.
+    [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
     # full-toolset breadth (informational — confirms parity beyond the curated core)
     have java      "java -version"
     have ruby      "ruby --version"
@@ -204,7 +207,6 @@ runcmd:
     have brew      "/home/linuxbrew/.linuxbrew/bin/brew --version"
     have toolcache "ls /opt/hostedtoolcache"
     have android   "ls /usr/local/lib/android/sdk"
-    [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
     poweroff
 SEED
   genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
@@ -214,7 +216,7 @@ SEED
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
   echo "--- verification output ---"
-  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  grep -aE 'CHECK |TOOL |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
   if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
     note "VERIFY PASS"; rm -rf "$wd"; return 0
   fi
@@ -262,7 +264,7 @@ SEED
     -netdev user,id=n0 -device e1000,netdev=n0 \
     -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
   echo "--- verification output ---"
-  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  grep -aE 'CHECK |TOOL |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
   if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
     note "VERIFY PASS"; rm -rf "$wd"; return 0
   fi
