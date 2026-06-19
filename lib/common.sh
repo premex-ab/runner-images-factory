@@ -145,9 +145,10 @@ verify_macos() {
   tpid=$!
   ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
   for _ in $(seq 1 40); do _mac_ssh "$ip" true 2>/dev/null && break; sleep 3; done   # wait for sshd (VM just booted)
-  out="$(_mac_ssh "$ip" bash <<'CHECKS'
+  out="$(_mac_ssh "$ip" "zsh -l" <<'CHECKS'
 fail=0
-eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null)" || true   # add /opt/homebrew/bin to PATH (login shells do this)
+eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null)" || true   # login zsh (-l) already sourced ~/.zprofile,
+# which sets keg-only tool PATHs like node@20 on the cirruslabs base — this is just a belt-and-suspenders.
 chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
 chk clang  "clang --version"
 chk swift  "swift --version"
