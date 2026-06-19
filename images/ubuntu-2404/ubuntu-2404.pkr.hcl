@@ -85,9 +85,12 @@ build {
       # function in every helper, and replace invoke-tests.sh itself.
       "for h in /imagegeneration/helpers/*.sh; do printf '\\ninvoke_tests() { return 0; }\\n' | sudo tee -a \"$h\" >/dev/null; done",
       "printf '#!/bin/bash\\ninvoke_tests() { return 0; }\\n' | sudo tee /imagegeneration/helpers/invoke-tests.sh >/dev/null",
-      # the install-*.ps1 Import tests/Helpers.psm1 + call Invoke-PesterTests at the end — no-op stub it.
+      # install-*.ps1 Import tests/Helpers.psm1, which chain-imports helpers/Common.Helpers.psm1
+      # (Get-ToolsetContent etc.). Ship the REAL module so that chain works; only no-op
+      # Invoke-PesterTests (appended → last definition wins) so we skip their Pester run.
       "sudo mkdir -p /imagegeneration/tests",
-      "printf 'function Invoke-PesterTests { param($TestFile,$TestName) }\\nfunction ShouldReturnZeroExitCode { param($Command) $True }\\nfunction ShouldOutputTextMatchingRegex { param($Command,$Regex) $True }\\n' | sudo tee /imagegeneration/tests/Helpers.psm1 >/dev/null",
+      "sudo cp /tmp/ri/images/ubuntu/scripts/tests/Helpers.psm1 /imagegeneration/tests/Helpers.psm1",
+      "printf '\\nfunction Invoke-PesterTests { param($TestFile,$TestName) }\\n' | sudo tee -a /imagegeneration/tests/Helpers.psm1 >/dev/null",
       "sudo chmod -R 777 /imagegeneration",
       "rm -rf /tmp/ri /tmp/ri.tar.gz",
     ]
