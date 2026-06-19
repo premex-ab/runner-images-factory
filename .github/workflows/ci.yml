@@ -19,13 +19,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck >/dev/null
           # -S error: block on real bugs, not style nits.
-          shellcheck -S error build.sh lib/*.sh images/*/bootspam.sh
+          shellcheck -S error build.sh lib/*.sh images/*/bootspam.sh images/*/provision.sh
 
       - name: packer validate (syntax-only)
         run: |
           curl -fsSL -o /tmp/packer.zip https://releases.hashicorp.com/packer/1.11.2/packer_1.11.2_linux_amd64.zip
           unzip -oq /tmp/packer.zip -d /tmp
           for d in images/*/; do
+            ls "$d"*.pkr.hcl >/dev/null 2>&1 || { echo "== skip $d (no packer template — e.g. macOS/Tart) =="; continue; }
             echo "== validate $d =="
             ( cd "$d" && /tmp/packer init . >/dev/null && /tmp/packer validate -syntax-only . )
           done

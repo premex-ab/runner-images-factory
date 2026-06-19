@@ -3,6 +3,7 @@
 #   ./build.sh list
 #   ./build.sh ubuntu-2404
 #   ./build.sh windows-2025 --iso /path/to/server2025-eval.iso
+#   ./build.sh macos-tahoe                   # macOS via Tart (Apple Silicon Mac only)
 #   ./build.sh verify ubuntu-2404            # boot the built image + run its toolchain
 # Output: out/<image>/<image>.qcow2 (+ .sha256). Bring your own OS media — see README.
 set -euo pipefail
@@ -19,11 +20,13 @@ case "$cmd" in
   verify)
     vimg="${2:-}"
     { [ -n "$vimg" ] && [ -d "$HERE/images/$vimg" ]; } || die "usage: ./build.sh verify <image> [qcow2-path]"
-    require_linux_kvm
-    verify_image "$vimg" "${3:-$(find "$HERE/out/$vimg" -name '*.qcow2' 2>/dev/null | head -1)}"
+    case "$vimg" in
+      macos-*) require_macos_tart; verify_image "$vimg" ;;
+      *) require_linux_kvm; verify_image "$vimg" "${3:-$(find "$HERE/out/$vimg" -name '*.qcow2' 2>/dev/null | head -1)}" ;;
+    esac
     exit 0 ;;
   help | -h | --help)
-    sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
 esac
 
@@ -60,6 +63,12 @@ case "$IMAGE" in
     download_cloud_image "$(cloud_image_url "$IMAGE")" "$cloud"
     note "building $IMAGE (~25 min) — log: $OUT/build.log"
     build_ubuntu "$IMGDIR" "$OUT" "$cloud" ;;
+  macos-*)
+    require_macos_tart
+    note "building $IMAGE via Tart (clone the base + provision over SSH)"
+    build_macos "$IMAGE" "$IMGDIR"
+    note "done: tart image rif-$IMAGE  —  ./build.sh verify $IMAGE to boot-test it"
+    exit 0 ;;
   *)
     die "no builder for '$IMAGE'" ;;
 esac

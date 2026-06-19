@@ -92,13 +92,77 @@ build_ubuntu() {
 # seed that RUNS the toolchain and reports PASS/FAIL over the serial console. This is the
 # real test their stubbed Pester would have done — the tools actually execute.
 verify_image() {
-  local image="$1" qcow="$2"
-  [ -f "$qcow" ] || die "no image to verify at: $qcow (build it first, or pass a path)"
+  local image="$1" qcow="${2:-}"
   case "$image" in
-    ubuntu-*) verify_ubuntu "$qcow" ;;
-    windows-*) verify_windows "$qcow" ;;
+    ubuntu-*)  [ -f "$qcow" ] || die "no image at: $qcow"; verify_ubuntu "$qcow" ;;
+    windows-*) [ -f "$qcow" ] || die "no image at: $qcow"; verify_windows "$qcow" ;;
+    macos-*)   verify_macos "$image" ;;
     *) die "no verifier for '$image'" ;;
   esac
+}
+
+# --- macOS: Tart (Apple's macOS virtualization), Mac build host only — not QEMU ---
+require_macos_tart() {
+  [ "$(uname -s)" = "Darwin" ] || die "macOS images build only on a Mac (Tart needs Apple hardware); you're on $(uname -s)."
+  [ "$(uname -m)" = "arm64" ] || die "macOS guests need Apple Silicon (arm64)."
+  command -v tart >/dev/null || die "tart not installed — brew install cirruslabs/cli/tart"
+  command -v sshpass >/dev/null || die "sshpass not installed — brew install hudochenkov/sshpass/sshpass"
+}
+
+_tart_ip() { local n="$1" ip _; for _ in $(seq 1 60); do ip=$(tart ip "$n" 2>/dev/null); [ -n "$ip" ] && { echo "$ip"; return 0; }; sleep 3; done; return 1; }
+
+# cirruslabs base creds are admin/admin. Force password-only auth: the base's sshd has a low
+# MaxAuthTries, so any key/agent probing trips "too many authentication failures".
+_mac_ssh() { local ip="$1"; shift; sshpass -p admin ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "admin@$ip" "$@"; }
+
+build_macos() {
+  local image="$1" imgdir="$2" ip tpid name
+  name="rif-$image"
+  # shellcheck source=/dev/null
+  source "$imgdir/config.sh"
+  note "cloning $BASE_IMAGE -> $name"
+  tart stop "$name" 2>/dev/null || true
+  tart delete "$name" 2>/dev/null || true
+  tart clone "$BASE_IMAGE" "$name"
+  note "booting $name (headless) to provision"
+  tart run --no-graphics "$name" >/dev/null 2>&1 &
+  tpid=$!
+  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  note "provisioning over SSH ($ip)"
+  _mac_ssh "$ip" "RUNNER_VERSION=$RUNNER_VERSION bash -s" < "$imgdir/provision.sh"
+  _mac_ssh "$ip" "sudo shutdown -h now" 2>/dev/null || true
+  wait "$tpid" 2>/dev/null || true
+  note "built tart image: $name"
+}
+
+verify_macos() {
+  local image="$1" ip tpid out name
+  name="rif-$image"
+  tart list 2>/dev/null | grep -qw "$name" || die "no tart image '$name' — build it first"
+  note "verifying $name — booting + running the toolchain (~2-3 min)"
+  tart run --no-graphics "$name" >/dev/null 2>&1 &
+  tpid=$!
+  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  out="$(_mac_ssh "$ip" bash <<'CHECKS'
+fail=0
+eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null)" || true   # add /opt/homebrew/bin to PATH (login shells do this)
+chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+chk clang  "clang --version"
+chk swift  "swift --version"
+chk git    "git --version"
+chk brew   "brew --version"
+chk node   "node --version"
+chk python "python3 --version"
+chk ruby   "ruby --version"
+chk runner "test -f ~/actions-runner/run.sh && echo baked"
+[ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
+CHECKS
+)"
+  echo "--- verification output ---"; echo "$out" | grep -E 'CHECK |VERIFY_RESULT'
+  tart stop "$name" >/dev/null 2>&1 || true
+  wait "$tpid" 2>/dev/null || true
+  echo "$out" | grep -q 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; return 0; }
+  die "VERIFY FAIL"
 }
 
 verify_ubuntu() {
