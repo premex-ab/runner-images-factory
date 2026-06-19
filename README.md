@@ -14,8 +14,8 @@ ready-to-boot **qcow2** for self-hosted runners.
 
 ## Quick start
 
-You need a **Linux host with `/dev/kvm`** (for Windows & Linux images) — a spare box or a
-Linux VM. macOS images build on a Mac via Tart (separate, not here).
+You need a **Linux host with `/dev/kvm`** for Windows & Linux images (a spare box or a Linux
+VM), or an **Apple Silicon Mac** with `tart` + `sshpass` for macOS images.
 
 ```bash
 git clone https://github.com/premex-ab/runner-images-factory
@@ -30,6 +30,9 @@ cd runner-images-factory
 #   https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025
 ./build.sh windows-2025 --iso ~/Downloads/server2025-eval.iso
 # → out/windows-2025/windows-2025.qcow2  (+ .sha256)
+
+# macOS — on an Apple Silicon Mac via Tart (needs `tart` + `sshpass`), no ISO:
+./build.sh macos-tahoe
 
 # Verify a built image — boots it + runs the toolchain for real (pass/fail):
 ./build.sh verify ubuntu-2404
@@ -51,10 +54,13 @@ runners (object store, a file server, a local registry, your orchestrator's imag
   We never edit their tree (consume, don't fork) → no merge conflicts.
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
   boot-prompt helper, output + checksum.
-- **`build.sh verify <image>`** — real verification: boots a CoW overlay of the built image
-  and *runs* the toolchain, reporting pass/fail over serial. Linux uses a cloud-init seed;
-  Windows uses a cloudbase-init `#ps1` seed writing to COM1. The genuine functional test —
-  not just "scripts exited 0".
+- **`build.sh verify <image>`** — real verification: boots the built image and *runs* the
+  toolchain, pass/fail. Linux uses a cloud-init seed (serial); Windows a cloudbase-init `#ps1`
+  (COM1); macOS boots the Tart VM and SSHes in. The genuine functional test — not "scripts
+  exited 0".
+- **macOS is a different path** — built with **Tart** (Apple Silicon Mac only), not Packer/QEMU.
+  It clones the cirruslabs macOS base (a maintained CI image — the "consume" analog), bakes the
+  runner, and verifies over SSH. Not redistributable (Apple EULA), which fits the model.
 - **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-verify.
 
 ## Status
@@ -65,9 +71,11 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 | `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `ubuntu-2204` | ✅ working + **verified** | same toolchain at 22.04 versions (python 3.10, gcc 11, clang 14) |
 | `windows-2022` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (win22 toolset, pinned) |
+| `macos-tahoe` | ✅ working + **verified** | clang/swift (Xcode), brew, node, python, ruby, git + runner (cirruslabs base, via Tart) |
 
-**Parity: all four buildable OSes build _and_ boot-verify.** macOS can't be built off Apple
-hardware (a hard limit, not a gap we can close here).
+**Parity: all five OS families GitHub ships build _and_ boot-verify** — ubuntu 22.04/24.04,
+windows 2022/2025, and macOS. macOS builds on an Apple Silicon Mac (Tart); the rest on a Linux
+KVM host.
 
 ## Roadmap
 
