@@ -178,7 +178,9 @@ runcmd:
     exec > /dev/ttyS0 2>&1
     fail=0
     for _ in $(seq 1 30); do systemctl is-active docker >/dev/null 2>&1 && break; sleep 2; done
+    set -a; . /etc/environment 2>/dev/null; set +a
     chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+    have(){ printf 'TOOL %-10s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo MISSING; fi; }
     chk docker "docker info"
     chk dotnet "dotnet --version"
     chk node   "node --version"
@@ -188,6 +190,20 @@ runcmd:
     chk cmake  "cmake --version"
     chk git    "git --version"
     chk pwsh   "pwsh --version"
+    # full-toolset breadth (informational — confirms parity beyond the curated core)
+    have java      "java -version"
+    have ruby      "ruby --version"
+    have php       "php --version"
+    have rust      "cargo --version"
+    have go        "ls /opt/hostedtoolcache/go"
+    have az        "az version"
+    have aws       "aws --version"
+    have gh        "gh --version"
+    have kubectl   "kubectl version --client"
+    have bazel     "bazel --version"
+    have brew      "/home/linuxbrew/.linuxbrew/bin/brew --version"
+    have toolcache "ls /opt/hostedtoolcache"
+    have android   "ls /usr/local/lib/android/sdk"
     [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
     poweroff
 SEED
