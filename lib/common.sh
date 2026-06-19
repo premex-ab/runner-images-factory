@@ -81,12 +81,3 @@ build_ubuntu() {
     -var "output_dir=$out/image" \
     . >"$out/build.log" 2>&1
 }
-
-# Optional: push a built image to the NAS (private use). Set NAS_DEST=user@nas:/path.
-upload_to_nas() {
-  local image="$1" qcow="$2"
-  [ -n "${NAS_DEST:-}" ] || die "set NAS_DEST=user@nas:/volume1/images to --upload"
-  note "uploading to ${NAS_DEST}/${image}/"
-  ssh "${NAS_DEST%%:*}" "mkdir -p '${NAS_DEST#*:}/${image}'" 2>/dev/null || true
-  scp "$qcow" "${qcow}.sha256" "${NAS_DEST}/${image}/"
-}

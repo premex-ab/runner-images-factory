@@ -33,7 +33,8 @@ cd runner-images-factory
 ```
 
 The first run bootstraps prereqs (`packer`, `qemu`, `vncdotool`); see `lib/common.sh`.
-Add `--upload` (with `NAS_DEST=user@nas:/volume1/images`) to publish to your private NAS.
+The build drops `out/<name>/<name>.qcow2` (+ `.sha256`) — host it however suits your
+runners (object store, a file server, a local registry, your orchestrator's image cache …).
 
 ## How it works
 
@@ -46,7 +47,7 @@ Add `--upload` (with `NAS_DEST=user@nas:/volume1/images`) to publish to your pri
   `toolset.json` into `/imagegeneration` and runs a curated subset of `install-*.sh`.
   We never edit their tree (consume, don't fork) → no merge conflicts.
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
-  boot-prompt helper, output + checksum, optional NAS upload.
+  boot-prompt helper, output + checksum.
 - **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-run their tests.
 
 ## Status

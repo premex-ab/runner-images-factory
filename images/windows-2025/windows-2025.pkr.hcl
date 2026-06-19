@@ -1,4 +1,4 @@
-// Baremetal Windows Server 2025 runner image — built with Packer's QEMU builder.
+// Windows Server 2025 runner image — built with Packer's QEMU builder.
 // Unlike a hand-rolled FirstLogonCommands script, Packer connects over WinRM and
 // runs every provisioning step remotely with full logs + a clean shutdown. The
 // Autounattend only bootstraps WinRM; everything else is Packer provisioners.
@@ -91,7 +91,7 @@ source "qemu" "windows2025" {
   vnc_bind_address = "0.0.0.0"
 
   output_directory = var.output_dir
-  vm_name          = "baremetal-windows-2025-runner.qcow2"
+  vm_name          = "windows-2025.qcow2"
 }
 
 // Env vars the actions/runner-images build scripts assume (their Azure template's
@@ -104,7 +104,7 @@ locals {
     "AGENT_TOOLSDIRECTORY=C:\\hostedtoolcache\\windows",
     "IMAGE_OS=win25",
     "IMAGEDATA_FILE=C:\\imagedata.json",
-    "IMAGE_VERSION=baremetal",
+    "IMAGE_VERSION=runner",
   ]
 }
 
