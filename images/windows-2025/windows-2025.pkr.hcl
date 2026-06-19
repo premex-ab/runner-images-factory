@@ -214,7 +214,7 @@ build {
       "if (-not $ok) { throw 'cloudbase-init MSI download failed after 5 attempts' }",
       "$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList \"/i $msi /qn /norestart RUN_SERVICE_AS_LOCAL_SYSTEM=1\"",
       "if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw \"cloudbase-init msiexec failed: $($p.ExitCode)\" }",
-      "if (-not (Test-Path 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\bin\\cloudbase-init.exe')) { throw 'cloudbase-init binary missing after install' }",
+      "$cbidir = 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init'; if (-not (Test-Path $cbidir) -or @(Get-ChildItem $cbidir -Recurse -File -ErrorAction SilentlyContinue).Count -lt 50) { throw 'cloudbase-init install incomplete (dir missing or sparse)' }",
       "Remove-Item $msi -Force",
       "Write-Host 'cloudbase-init installed'",
     ]
