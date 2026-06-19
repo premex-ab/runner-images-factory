@@ -3,6 +3,7 @@
 #   ./build.sh list
 #   ./build.sh ubuntu-2404
 #   ./build.sh windows-2025 --iso /path/to/server2025-eval.iso
+#   ./build.sh verify ubuntu-2404            # boot the built image + run its toolchain
 # Output: out/<image>/<image>.qcow2 (+ .sha256). Bring your own OS media — see README.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -15,8 +16,14 @@ case "$cmd" in
     echo "Available images:"
     for d in "$HERE"/images/*/; do echo "  - $(basename "$d")"; done
     exit 0 ;;
+  verify)
+    vimg="${2:-}"
+    { [ -n "$vimg" ] && [ -d "$HERE/images/$vimg" ]; } || die "usage: ./build.sh verify <image> [qcow2-path]"
+    require_linux_kvm
+    verify_image "$vimg" "${3:-$(find "$HERE/out/$vimg" -name '*.qcow2' 2>/dev/null | head -1)}"
+    exit 0 ;;
   help | -h | --help)
-    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
 esac
 
