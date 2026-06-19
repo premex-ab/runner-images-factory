@@ -136,5 +136,49 @@ SEED
 }
 
 verify_windows() {
-  die "windows verification not implemented yet (next iteration)"
+  local qcow="$1" wd
+  wd="$(mktemp -d)"
+  note "verifying $(basename "$qcow") — booting Windows + running the toolchain (~6-10 min)"
+  qemu-img create -q -f qcow2 -b "$(cd "$(dirname "$qcow")" && pwd)/$(basename "$qcow")" -F qcow2 "$wd/overlay.qcow2"
+  cp /usr/share/OVMF/OVMF_VARS_4M.fd "$wd/vars.fd"
+  # NoCloud ConfigDrive seed (cidata CD) — cloudbase-init runs the #ps1 user-data as SYSTEM,
+  # which writes CHECK/VERIFY_RESULT lines to COM1 (captured by qemu -serial), then shuts down.
+  printf 'instance-id: verify\nlocal-hostname: verify\n' > "$wd/meta-data"
+  cat > "$wd/user-data" <<'SEED'
+#ps1_sysnative
+$ErrorActionPreference='SilentlyContinue'
+$port = New-Object System.IO.Ports.SerialPort('COM1',115200,'None',8,'One')
+$port.Open()
+function ser($m){ $port.WriteLine($m) }
+$fail=0
+function chk($n,$exe,$va){
+  $c = Get-Command $exe -ErrorAction SilentlyContinue
+  if($c){ $o = (& $exe $va 2>&1 | Select-Object -First 1); ser("CHECK $n OK $o") }
+  else { ser("CHECK $n FAIL not-found"); $script:fail=1 }
+}
+chk pwsh  pwsh  '--version'
+chk choco choco '--version'
+chk git   git   '--version'
+chk node  node  '--version'
+chk gcc   gcc   '--version'
+chk 7z    7z    'i'
+if($fail -eq 0){ ser('VERIFY_RESULT=PASS') } else { ser('VERIFY_RESULT=FAIL') }
+Start-Sleep -Seconds 2
+$port.Close()
+Stop-Computer -Force
+SEED
+  genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
+  timeout 900 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
+    -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+    -drive if=pflash,format=raw,file="$wd/vars.fd" \
+    -drive file="$wd/overlay.qcow2",if=ide,format=qcow2 \
+    -drive file="$wd/seed.iso",media=cdrom \
+    -netdev user,id=n0 -device e1000,netdev=n0 \
+    -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
+  echo "--- verification output ---"
+  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
+    note "VERIFY PASS"; rm -rf "$wd"; return 0
+  fi
+  die "VERIFY FAIL or no result (serial log kept: $wd/serial.log)"
 }
