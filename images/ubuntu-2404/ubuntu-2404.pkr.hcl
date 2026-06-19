@@ -107,6 +107,7 @@ build {
       "AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache",
     ]
     execute_command = "chmod +x {{ .Path }}; sudo -E bash -c '{{ .Vars }} {{ .Path }}'"
+    inline_shebang  = "/bin/bash"   # Packer defaults to "/bin/sh -e"; we need NO -e for discovery
     inline = [
       "set -x",
       "i=$INSTALLER_SCRIPT_FOLDER; fails=''",
