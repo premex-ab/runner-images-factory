@@ -30,6 +30,9 @@ cd runner-images-factory
 #   https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025
 ./build.sh windows-2025 --iso ~/Downloads/server2025-eval.iso
 # → out/windows-2025/windows-2025.qcow2  (+ .sha256)
+
+# Verify a built image — boots it + runs the toolchain for real (pass/fail):
+./build.sh verify ubuntu-2404
 ```
 
 The first run bootstraps prereqs (`packer`, `qemu`, `vncdotool`); see `lib/common.sh`.
@@ -48,19 +51,23 @@ runners (object store, a file server, a local registry, your orchestrator's imag
   We never edit their tree (consume, don't fork) → no merge conflicts.
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
   boot-prompt helper, output + checksum.
-- **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-run their tests.
+- **`build.sh verify <image>`** — real verification: boots a CoW overlay of the built image
+  with a cloud-init seed that *runs* the toolchain (docker/dotnet/node/gcc/clang/…) and
+  reports pass/fail over serial. The genuine functional test — not just "scripts exited 0".
+- **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-verify.
 
 ## Status
 
 | Image | State | Toolchain |
 |---|---|---|
 | `windows-2025` | ✅ working | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
-| `ubuntu-2404` | ✅ working | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
+| `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
 | `windows-2022`, `ubuntu-2022` | ⏳ planned | — |
 
 ## Roadmap
 
-- [x] `ubuntu-2404` cell (the fully-automatic example) — builds green (19 G qcow2)
+- [x] `ubuntu-2404` cell (the fully-automatic example) — builds green (19 G qcow2), boot-verified
+- [x] Real verification harness (`build.sh verify`) — boots the image + runs the toolchain (ubuntu done, windows next)
 - [ ] Vendor `runner-images` as a submodule + a daily **bump → build → test → promote** pipeline (AI agent for triage only)
 - [ ] Self-hosted build runners (Linux for win/ubuntu, Mac for macOS)
 - [ ] Expand the curated toolchain toward `windows-latest` (Python/Go/.NET/…), with real Pester validation

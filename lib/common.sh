@@ -81,3 +81,60 @@ build_ubuntu() {
     -var "output_dir=$out/image" \
     . >"$out/build.log" 2>&1
 }
+
+# Real verification: boot the built image (a CoW overlay — never mutated) with a cloud-init
+# seed that RUNS the toolchain and reports PASS/FAIL over the serial console. This is the
+# real test their stubbed Pester would have done — the tools actually execute.
+verify_image() {
+  local image="$1" qcow="$2"
+  [ -f "$qcow" ] || die "no image to verify at: $qcow (build it first, or pass a path)"
+  case "$image" in
+    ubuntu-*) verify_ubuntu "$qcow" ;;
+    windows-*) verify_windows "$qcow" ;;
+    *) die "no verifier for '$image'" ;;
+  esac
+}
+
+verify_ubuntu() {
+  local qcow="$1" wd
+  wd="$(mktemp -d)"
+  note "verifying $(basename "$qcow") — booting + running the toolchain (~3-5 min)"
+  qemu-img create -q -f qcow2 -b "$(cd "$(dirname "$qcow")" && pwd)/$(basename "$qcow")" -F qcow2 "$wd/overlay.qcow2"
+  printf 'instance-id: verify\nlocal-hostname: verify\n' > "$wd/meta-data"
+  cat > "$wd/user-data" <<'SEED'
+#cloud-config
+runcmd:
+  - |
+    exec > /dev/ttyS0 2>&1
+    fail=0
+    for _ in $(seq 1 30); do systemctl is-active docker >/dev/null 2>&1 && break; sleep 2; done
+    chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+    chk docker "docker info"
+    chk dotnet "dotnet --version"
+    chk node   "node --version"
+    chk python "python3 --version"
+    chk gcc    "gcc --version"
+    chk clang  "clang --version"
+    chk cmake  "cmake --version"
+    chk git    "git --version"
+    chk pwsh   "pwsh --version"
+    [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
+    poweroff
+SEED
+  genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
+  timeout 360 qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+    -drive file="$wd/overlay.qcow2",if=virtio,format=qcow2 \
+    -drive file="$wd/seed.iso",media=cdrom \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
+  echo "--- verification output ---"
+  grep -aE 'CHECK |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
+  if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
+    note "VERIFY PASS"; rm -rf "$wd"; return 0
+  fi
+  die "VERIFY FAIL or no result (serial log kept: $wd/serial.log)"
+}
+
+verify_windows() {
+  die "windows verification not implemented yet (next iteration)"
+}
