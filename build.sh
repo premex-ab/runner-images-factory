@@ -57,7 +57,7 @@ case "$IMAGE" in
     require_linux_kvm
     ensure_packer
     cloud="$HERE/.cache/${IMAGE}-cloud.img"
-    download_cloud_image "$UBUNTU_2404_CLOUD_IMAGE" "$cloud"
+    download_cloud_image "$(cloud_image_url "$IMAGE")" "$cloud"
     note "building $IMAGE (~25 min) — log: $OUT/build.log"
     build_ubuntu "$IMGDIR" "$OUT" "$cloud" ;;
   *)

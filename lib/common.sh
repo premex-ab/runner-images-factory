@@ -53,8 +53,14 @@ build_windows() {
   wait "$pk"
 }
 
-# Ubuntu cloud image — the freely-redistributable base; we download it for the user.
-UBUNTU_2404_CLOUD_IMAGE="${UBUNTU_2404_CLOUD_IMAGE:-https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img}"
+# Ubuntu cloud image per release — the freely-redistributable base; we download it.
+cloud_image_url() {
+  case "$1" in
+    ubuntu-2404) echo "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img" ;;
+    ubuntu-2204) echo "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img" ;;
+    *) die "no cloud image URL for $1" ;;
+  esac
+}
 
 download_cloud_image() {
   local url="$1" dest="$2"
