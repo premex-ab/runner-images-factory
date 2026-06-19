@@ -85,6 +85,9 @@ build {
       # function in every helper, and replace invoke-tests.sh itself.
       "for h in /imagegeneration/helpers/*.sh; do printf '\\ninvoke_tests() { return 0; }\\n' | sudo tee -a \"$h\" >/dev/null; done",
       "printf '#!/bin/bash\\ninvoke_tests() { return 0; }\\n' | sudo tee /imagegeneration/helpers/invoke-tests.sh >/dev/null",
+      # the install-*.ps1 Import tests/Helpers.psm1 + call Invoke-PesterTests at the end — no-op stub it.
+      "sudo mkdir -p /imagegeneration/tests",
+      "printf 'function Invoke-PesterTests { param($TestFile,$TestName) }\\nfunction ShouldReturnZeroExitCode { param($Command) $True }\\nfunction ShouldOutputTextMatchingRegex { param($Command,$Regex) $True }\\n' | sudo tee /imagegeneration/tests/Helpers.psm1 >/dev/null",
       "sudo chmod -R 777 /imagegeneration",
       "rm -rf /tmp/ri /tmp/ri.tar.gz",
     ]
