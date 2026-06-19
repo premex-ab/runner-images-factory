@@ -10,7 +10,7 @@ hardware** (KVM qcow2 / Tart) and **boot-verified**. "Suitable for self-hosting"
 | GitHub image | our cell | OS build path | status |
 |---|---|---|---|
 | `ubuntu-22.04` | `ubuntu-2204` | KVM/qcow2 | cell ✅, full toolset ⏳ |
-| `ubuntu-24.04` | `ubuntu-2404` | KVM/qcow2 | cell ✅, full toolset 🔨 (in progress) |
+| `ubuntu-24.04` | `ubuntu-2404` | KVM/qcow2 | ✅ **full toolset built + verified** (67/67, 66G) |
 | `windows-2022` | `windows-2022` | KVM/qcow2 | cell ✅, full toolset ⏳ |
 | `windows-2025` | `windows-2025` | KVM/qcow2 | cell ✅, full toolset ⏳ |
 | `macos-13` (Ventura) | `macos-ventura` | Tart | ⏳ TODO (cirruslabs base) |
@@ -24,7 +24,7 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 
 ### ubuntu (68 scripts in build.ubuntu-24_04 order)
 - [x] curated subset (git, docker, node, python, .NET, gcc, clang, cmake, pwsh)
-- [ ] **full set** 🔨 — discovery build mapping standalone failures. Includes:
+- [x] **full set ✅ built + boot-verified (67/67 scripts, 66 G image)** — installs:
   - [ ] languages: Java, Go (toolcache), Ruby, PHP, Rust, Swift, Haskell, Kotlin, Julia, PyPy, Python (multi-version)
   - [ ] Android SDK
   - [ ] cloud CLIs: Azure CLI, AWS, GCP, azcopy, bicep, az-devops
@@ -36,11 +36,11 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
   - [ ] Homebrew (Linuxbrew)
   - [ ] PowerShell + modules (incl. Az modules)
   - [ ] CLIs: gh, git-lfs, yq, kubectl/helm, pulumi, codeql, miniconda, container-tools
-- Known standalone fixes (so far):
+- Standalone fixes applied (all 67 now pass):
   - [x] apt assume-yes early (configure-apt-mock skipped) + script stdin from /dev/null
   - [x] `inline_shebang=/bin/bash` (Packer default `-e` aborted the discovery loop)
-  - [ ] `.ps1` scripts Import `tests/Helpers.psm1` (unshipped) → ship/stub it (like windows TestsHelpers)
-  - [ ] (remaining — from the discovery `@@@FAILURES`)
+  - [x] ship real `tests/Helpers.psm1` so `.ps1` get `Get-ToolsetContent` (Common.Helpers chain)
+  - [x] verify: per-check timeout + print VERIFY_RESULT after the core gate (66 G image is slow)
 
 ### windows (the Install-*.ps1 set)
 - [x] curated (pwsh, choco, 7zip, git, node, mingw, webview2)
@@ -71,5 +71,5 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 ## 5. Status
 
 - 5 OS cells exist + curated-verified (PRs #1–#7 merged): ubuntu 22.04/24.04, windows 2022/2025, macos-tahoe.
-- Full-toolset (ubuntu-2404) in progress — discovery build on the `ubuntu-full-toolset` branch.
-- Next: land ubuntu-2404 full → replicate to ubuntu-2204 → windows full → macOS 13/14/15 → manifest-based verify.
+- **ubuntu-2404 full toolset: ✅ built (67/67, 66 G) + boot-verified.**
+- Next: replicate to ubuntu-2204 (78 scripts) → windows full → macOS 13/14/15 → manifest-based verify.
