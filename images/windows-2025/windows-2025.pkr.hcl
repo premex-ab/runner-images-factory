@@ -47,9 +47,9 @@ source "qemu" "windows2025" {
   accelerator       = "kvm"
 
   // --- sizing ---
-  cpus      = 6
-  memory    = 12288
-  disk_size = "143360"
+  cpus      = 4
+  memory    = 8192
+  disk_size = "130048"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
   // disk natively (no virtio storage-driver injection — the fragile part) and WinRM
@@ -73,7 +73,7 @@ source "qemu" "windows2025" {
   // press it). The prompt appears ~6-11s after start and times out in ~5s, so we
   // spam Enter once per second from ~3s to ~22s to land inside that first window.
   boot_wait    = "55s"
-  boot_command = ["<enter>"]
+  boot_command = []
 
   // --- communicator: WinRM (enabled by the Autounattend FirstLogonCommands) ---
   communicator   = "winrm"
