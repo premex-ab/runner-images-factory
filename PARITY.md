@@ -9,13 +9,13 @@ hardware** (KVM qcow2 / Tart) and **boot-verified**. "Suitable for self-hosting"
 
 | GitHub image | our cell | OS build path | status |
 |---|---|---|---|
-| `ubuntu-22.04` | `ubuntu-2204` | KVM/qcow2 | cell ✅, full toolset ⏳ |
+| `ubuntu-22.04` | `ubuntu-2204` | KVM/qcow2 | ✅ **full toolset built + verified** (77/77, 67G) |
 | `ubuntu-24.04` | `ubuntu-2404` | KVM/qcow2 | ✅ **full toolset built + verified** (67/67, 66G) |
 | `windows-2022` | `windows-2022` | KVM/qcow2 | cell ✅, full toolset ⏳ |
 | `windows-2025` | `windows-2025` | KVM/qcow2 | cell ✅, full toolset ⏳ |
-| `macos-13` (Ventura) | `macos-ventura` | Tart | ⏳ TODO (cirruslabs base) |
-| `macos-14` (Sonoma) | `macos-sonoma` | Tart | ⏳ TODO (cirruslabs base) |
-| `macos-15` (Sequoia) | `macos-sequoia` | Tart | ⏳ TODO (cirruslabs base) |
+| `macos-13` (Ventura) | `macos-ventura` | Tart | ✅ built + verified (clang 14, node 20) |
+| `macos-14` (Sonoma) | `macos-sonoma` | Tart | ✅ built + verified (clang 16, node 24) |
+| `macos-15` (Sequoia) | `macos-sequoia` | Tart | ✅ built + verified (clang 17, node 24) |
 | (macOS 26 Tahoe — newer than GitHub) | `macos-tahoe` | Tart | ✅ built + verified |
 
 GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
@@ -48,7 +48,8 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 
 ### macOS
 - [x] runner baked on the cirruslabs base (already a maintained full CI image)
-- [ ] pin/verify against GitHub's macOS software manifest; add 13/14/15 cells
+- [x] all 4 versions built + boot-verified: ventura (13), sonoma (14), sequoia (15), tahoe (26).
+      Verify runs in a login zsh so keg-only tool PATHs (e.g. node@20 on ventura) resolve.
 
 ## 3. Self-hosting adaptations (vs GitHub's Azure VHDs)
 
@@ -70,6 +71,6 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 
 ## 5. Status
 
-- 5 OS cells exist + curated-verified (PRs #1–#7 merged): ubuntu 22.04/24.04, windows 2022/2025, macos-tahoe.
-- **ubuntu-2404 full toolset: ✅ built (67/67, 66 G) + boot-verified.**
-- Next: replicate to ubuntu-2204 (78 scripts) → windows full → macOS 13/14/15 → manifest-based verify.
+- **Done + verified:** ubuntu 22.04 (77/77) + 24.04 (67/67) full toolsets; all 4 macOS versions
+  (ventura/sonoma/sequoia/tahoe). Images hosted on the NAS filebrowser.
+- **In progress:** windows 2022/2025 full toolset (72 scripts, 6 reboot-groups).
