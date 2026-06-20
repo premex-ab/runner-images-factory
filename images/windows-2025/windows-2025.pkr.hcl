@@ -132,7 +132,7 @@ build {
       "if (Test-Path \"$src\\assets\") { Copy-Item \"$src\\assets\" C:\\image\\assets -Recurse -Force }",
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2025.json C:\\image\\toolset.json -Force",
-      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 (deterministic EnterpriseDB URL returns 200; skips the 403-prone version-probe loop)'",
+      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -ne 'SSIS.MicrosoftDataToolsIntegrationServices' }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
       "Remove-Item C:\\ri.zip -Force; Remove-Item C:\\ri -Recurse -Force",
