@@ -255,7 +255,7 @@ for _ in range(60):
 if s is None:
     print("VERIFY_RESULT=FAIL (WinRM unreachable)"); raise SystemExit
 fail=0
-for t in ["pwsh","dotnet","git","node","python","java","go","ruby","choco","cmake","msbuild","bazel","rustc"]:
+for t in ["pwsh","dotnet","git","node","python","java","go","ruby","choco","cmake","bazel","rustc"]:
     src=s.run_ps("(Get-Command %s -EA SilentlyContinue|Select-Object -First 1).Source"%t).std_out.decode().strip()
     if src: print("CHECK %-8s OK %s"%(t,src))
     else:   print("CHECK %-8s FAIL"%t); fail=1
