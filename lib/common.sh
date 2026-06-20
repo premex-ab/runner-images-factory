@@ -224,9 +224,9 @@ SEED
 }
 
 verify_windows() {
-  local qcow="$1" wd venv qpid out
+  local qcow="$1" wd venv qpid out port
   wd="$(mktemp -d)"
-  venv="$HOME/.cache/rif-winrm-venv"
+  venv="$HOME/.cache/rif-winrm-venv"; port=$((15000 + RANDOM % 40000))
   note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
   # The image enables WinRM (Autounattend's FirstLogonCommands); boot it with a port-forward and
   # query Get-Command for each tool over WinRM. More reliable than a cloudbase-init serial seed
@@ -240,15 +240,15 @@ verify_windows() {
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,file="$wd/vars.fd" \
     -drive file="$wd/overlay.qcow2",if=ide,format=qcow2 \
-    -netdev user,id=n0,hostfwd=tcp::15985-:5985 -device e1000,netdev=n0 \
+    -netdev user,id=n0,hostfwd=tcp::$port-:5985 -device e1000,netdev=n0 \
     -display none >/dev/null 2>&1 &
   qpid=$!
-  out="$("$venv/bin/python3" - <<'PY'
-import winrm, time
+  out="$(WINRM_PORT="$port" "$venv/bin/python3" - <<'PY'
+import winrm, time, os
 s=None
 for _ in range(60):
     try:
-        c=winrm.Session("http://127.0.0.1:15985/wsman",auth=("Administrator","Bm-Packer-2025!"),transport="ntlm")
+        c=winrm.Session("http://127.0.0.1:%s/wsman"%os.environ["WINRM_PORT"],auth=("Administrator","Bm-Packer-2025!"),transport="ntlm")
         if b"OK" in c.run_ps('"OK"').std_out: s=c; break
     except Exception: pass
     time.sleep(12)
