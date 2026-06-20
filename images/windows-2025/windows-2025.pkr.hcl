@@ -49,7 +49,7 @@ source "qemu" "windows2025" {
   // --- sizing ---
   cpus      = 4
   memory    = 8192
-  disk_size = "130048"
+  disk_size = "204800"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
   // disk natively (no virtio storage-driver injection — the fragile part) and WinRM
