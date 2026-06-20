@@ -224,49 +224,46 @@ SEED
 }
 
 verify_windows() {
-  local qcow="$1" wd
+  local qcow="$1" wd venv qpid out
   wd="$(mktemp -d)"
-  note "verifying $(basename "$qcow") — booting Windows + running the toolchain (~6-10 min)"
+  venv="$HOME/.cache/rif-winrm-venv"
+  note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
+  # The image enables WinRM (Autounattend's FirstLogonCommands); boot it with a port-forward and
+  # query Get-Command for each tool over WinRM. More reliable than a cloudbase-init serial seed
+  # (the full image's cloudbase-init service may be Stopped). pywinrm lives in a throwaway venv
+  # (Ubuntu's system python is externally-managed / PEP 668).
+  [ -x "$venv/bin/python3" ] || python3 -m venv "$venv" >/dev/null 2>&1
+  "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
   qemu-img create -q -f qcow2 -b "$(cd "$(dirname "$qcow")" && pwd)/$(basename "$qcow")" -F qcow2 "$wd/overlay.qcow2"
   cp /usr/share/OVMF/OVMF_VARS_4M.fd "$wd/vars.fd"
-  # NoCloud ConfigDrive seed (cidata CD) — cloudbase-init runs the #ps1 user-data as SYSTEM,
-  # which writes CHECK/VERIFY_RESULT lines to COM1 (captured by qemu -serial), then shuts down.
-  printf 'instance-id: verify\nlocal-hostname: verify\n' > "$wd/meta-data"
-  cat > "$wd/user-data" <<'SEED'
-#ps1_sysnative
-$ErrorActionPreference='SilentlyContinue'
-$port = New-Object System.IO.Ports.SerialPort('COM1',115200,'None',8,'One')
-$port.Open()
-function ser($m){ $port.WriteLine($m) }
-$fail=0
-function chk($n,$exe,$va){
-  $c = Get-Command $exe -ErrorAction SilentlyContinue
-  if($c){ $o = (& $exe $va 2>&1 | Select-Object -First 1); ser("CHECK $n OK $o") }
-  else { ser("CHECK $n FAIL not-found"); $script:fail=1 }
-}
-chk pwsh  pwsh  '--version'
-chk choco choco '--version'
-chk git   git   '--version'
-chk node  node  '--version'
-chk gcc   gcc   '--version'
-chk 7z    7z    'i'
-if($fail -eq 0){ ser('VERIFY_RESULT=PASS') } else { ser('VERIFY_RESULT=FAIL') }
-Start-Sleep -Seconds 2
-$port.Close()
-Stop-Computer -Force
-SEED
-  genisoimage -quiet -output "$wd/seed.iso" -volid cidata -joliet -rock "$wd/user-data" "$wd/meta-data"
-  timeout 900 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
+  timeout 1200 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,file="$wd/vars.fd" \
     -drive file="$wd/overlay.qcow2",if=ide,format=qcow2 \
-    -drive file="$wd/seed.iso",media=cdrom \
-    -netdev user,id=n0 -device e1000,netdev=n0 \
-    -serial file:"$wd/serial.log" -display none -no-reboot >/dev/null 2>&1 || true
-  echo "--- verification output ---"
-  grep -aE 'CHECK |TOOL |VERIFY_RESULT' "$wd/serial.log" 2>/dev/null | tr -d '\r' || true
-  if grep -qa 'VERIFY_RESULT=PASS' "$wd/serial.log" 2>/dev/null; then
-    note "VERIFY PASS"; rm -rf "$wd"; return 0
-  fi
-  die "VERIFY FAIL or no result (serial log kept: $wd/serial.log)"
+    -netdev user,id=n0,hostfwd=tcp::15985-:5985 -device e1000,netdev=n0 \
+    -display none >/dev/null 2>&1 &
+  qpid=$!
+  out="$("$venv/bin/python3" - <<'PY'
+import winrm, time
+s=None
+for _ in range(60):
+    try:
+        c=winrm.Session("http://127.0.0.1:15985/wsman",auth=("Administrator","Bm-Packer-2025!"),transport="ntlm")
+        if b"OK" in c.run_ps('"OK"').std_out: s=c; break
+    except Exception: pass
+    time.sleep(12)
+if s is None:
+    print("VERIFY_RESULT=FAIL (WinRM unreachable)"); raise SystemExit
+fail=0
+for t in ["pwsh","dotnet","git","node","python","java","go","ruby","choco","cmake","msbuild","bazel","rustc"]:
+    src=s.run_ps("(Get-Command %s -EA SilentlyContinue|Select-Object -First 1).Source"%t).std_out.decode().strip()
+    if src: print("CHECK %-8s OK %s"%(t,src))
+    else:   print("CHECK %-8s FAIL"%t); fail=1
+print("VERIFY_RESULT="+("PASS" if not fail else "FAIL"))
+PY
+)"
+  kill "$qpid" 2>/dev/null
+  echo "--- verification output ---"; echo "$out" | grep -aE 'CHECK |VERIFY_RESULT' || echo "$out"
+  echo "$out" | grep -qa 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; rm -rf "$wd"; return 0; }
+  die "VERIFY FAIL (out kept: $wd)"
 }
