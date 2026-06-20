@@ -140,20 +140,22 @@ build {
   }
 
   // FULL runner-images toolset (parity with windows-2025) — the complete ordered install set
-  // from build.windows-2025, in the same 6 reboot-separated groups. Discovery mode per group:
-  // ErrorActionPreference=Continue, run every script, log @@@OK/@@@FAIL + @@@FAILURES, so one
-  // build maps the standalone-failure surface. Skips Windows Updates (slow / can hang in KVM),
-  // the Cosmos emulator, and Post-Build-Validation (Pester). windows-restart between groups.
+  // from build.windows-2025, in reboot-separated discovery groups that mirror the REAL template's
+  // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
+  // has → MSI 1603 / VS-dependent failures.) Discovery mode: ErrorActionPreference=Continue, run
+  // every script, log @@@OK/@@@FAIL + @@@FAILURES. A $noisy whitelist clears two wrapper
+  // false-positives — Configure-BaseImage's benign exec-policy warning and az's stale
+  // $LASTEXITCODE. Skips Windows Updates / Cosmos emulator / Post-Build-Validation (Pester).
 
   // group 1 — base config, WSL2, Windows features, chocolatey (+ 7zip for 7z extraction)
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Configure-WindowsDefender.ps1','Configure-PowerShell.ps1','Install-PowerShellModules.ps1','Install-WSL2.ps1','Install-WindowsFeatures.ps1','Install-Chocolatey.ps1','Configure-BaseImage.ps1','Configure-ImageDataFile.ps1','Configure-SystemEnvironment.ps1','Configure-DotnetSecureChannel.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
+      "foreach ($s in @('Configure-WindowsDefender.ps1','Configure-PowerShell.ps1','Install-PowerShellModules.ps1','Install-WSL2.ps1','Install-WindowsFeatures.ps1','Install-Chocolatey.ps1','Configure-BaseImage.ps1','Configure-ImageDataFile.ps1','Configure-SystemEnvironment.ps1','Configure-DotnetSecureChannel.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
       "choco install -y --no-progress 7zip.install 2>&1 | Out-Null; Write-Host '7zip via choco'",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
@@ -165,7 +167,7 @@ build {
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
       "foreach ($s in @('Install-Docker.ps1','Install-DockerWinCred.ps1','Install-DockerCompose.ps1','Install-PowershellCore.ps1','Install-WebPlatformInstaller.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
@@ -177,31 +179,64 @@ build {
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
       "foreach ($s in @('Install-VisualStudio.ps1','Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 4 — Wix, VS extensions, cloud CLIs, java, kotlin, service fabric
+  // group 4 — Wix, VS extensions, cloud CLIs, java, kotlin, openssl. pause_before lets VS
+  // servicing settle after the group-3 reboot (real template's pause_before=2m0s) so the
+  // VSExtensions MSI doesn't hit a pending-reboot 1603. Service Fabric SDK is split out below.
   provisioner "powershell" {
     environment_vars = local.ri_env
+    pause_before     = "2m0s"
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
+      "foreach ($s in @('Install-Wix.ps1','Install-VSExtensions.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+
+  // group 4b — Service Fabric SDK in its own provisioner with execution_policy=remotesigned,
+  // then a reboot — exactly what the real template does (must install after VS, with a clean
+  // reboot, or its installer returns exit 1).
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    execution_policy = "remotesigned"
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-Wix.ps1','Install-VSExtensions.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1','Install-ServiceFabricSDK.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "$s='Install-ServiceFabricSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 5 — the big batch: hosted-toolcache, every language, browsers + selenium, databases, build tools
+  // group 5a — the big batch: hosted-toolcache, every language, browsers + selenium, build tools
+  // (up to RootCA). The DB/MSI-heavy tail is split into 5b after a reboot so its MSIs don't hit a
+  // pending-reboot 1603 (MongoDB) left by the toolcache/SQL/DACFx installer churn here.
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Zstd.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-RootCA.ps1','Install-MongoDB.ps1','Install-CodeQLBundle.ps1','Configure-Diagnostics.ps1','Install-PostgreSQL.ps1','Configure-DynamicPort.ps1','Configure-GDIProcessHandleQuota.ps1','Configure-Shell.ps1','Configure-DeveloperMode.ps1','Install-LLVM.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Zstd.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 5b — databases + final build tools after a reboot (MongoDB/LLVM clear their 1603s).
+  // CodeQL pulls its bundle tag from the GitHub API unauthenticated and PostgreSQL probes
+  // EnterpriseDB — both can rate-limit/403 from one build IP; tracked as known-flaky externals.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "foreach ($s in @('Install-MongoDB.ps1','Install-CodeQLBundle.ps1','Configure-Diagnostics.ps1','Install-PostgreSQL.ps1','Configure-DynamicPort.ps1','Configure-GDIProcessHandleQuota.ps1','Configure-Shell.ps1','Configure-DeveloperMode.ps1','Install-LLVM.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
@@ -213,7 +248,7 @@ build {
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
       "foreach ($s in @('Invoke-Cleanup.ps1','Install-NativeImages.ps1','Configure-System.ps1','Configure-User.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",   # discovery already logged failures; force 0 so a failed script's $LASTEXITCODE doesn't abort Packer
+      "exit 0",
     ]
   }
 
