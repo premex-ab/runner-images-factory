@@ -3,8 +3,8 @@
 // runs every provisioning step remotely with full logs + a clean shutdown. The
 // Autounattend only bootstraps WinRM; everything else is Packer provisioners.
 //
-//   PACKER_PLUGIN_PATH=... packer init  windows-2025.pkr.hcl
-//   packer build -var windows_iso=/path/win-2025.iso -var virtio_iso=/path/virtio-win.iso windows-2025.pkr.hcl
+//   PACKER_PLUGIN_PATH=... packer init  windows-2022.pkr.hcl
+//   packer build -var windows_iso=/path/win-2022.iso -var virtio_iso=/path/virtio-win.iso windows-2022.pkr.hcl
 
 packer {
   required_plugins {
@@ -49,7 +49,7 @@ source "qemu" "windows2022" {
   // --- sizing ---
   cpus      = 4
   memory    = 8192
-  disk_size = "40960"
+  disk_size = "204800"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
   // disk natively (no virtio storage-driver injection — the fragile part) and WinRM
@@ -57,8 +57,8 @@ source "qemu" "windows2022" {
   disk_interface = "ide"
   net_device     = "e1000"
 
-  // -cpu host is REQUIRED: Windows Server 2022 / 24H2 needs SSE4.2 + POPCNT, which
-  // the default qemu64 CPU lacks. We only add -cpu (NOT -drive): a qemuargs -drive
+  // -cpu host is REQUIRED: Windows Server 2022 needs SSE4.2 + POPCNT, which the
+  // default qemu64 CPU lacks. We only add -cpu (NOT -drive): a qemuargs -drive
   // overrides ALL of Packer's default -drive switches (the OVMF pflash, system
   // disk, install ISO and Autounattend CD), which is what broke the first attempt.
   qemuargs = [
@@ -73,7 +73,7 @@ source "qemu" "windows2022" {
   // press it). The prompt appears ~6-11s after start and times out in ~5s, so we
   // spam Enter once per second from ~3s to ~22s to land inside that first window.
   boot_wait    = "55s"
-  boot_command = ["<enter>"]
+  boot_command = []
 
   // --- communicator: WinRM (enabled by the Autounattend FirstLogonCommands) ---
   communicator   = "winrm"
@@ -111,7 +111,7 @@ locals {
 build {
   sources = ["source.qemu.windows2022"]
 
-  // Stage actions/runner-images so our toolchain tracks windows-latest (issue #140).
+  // Stage actions/runner-images so our toolchain tracks windows-2022 (issue #140).
   // Their Install-*.ps1 aren't standalone: they call helper functions bare and rely
   // on PowerShell module auto-loading, read versions from toolset.json in IMAGE_FOLDER,
   // and end with Invoke-PesterTests validation. We replicate exactly that setup —
@@ -129,8 +129,10 @@ build {
       "$src = \"C:\\ri\\runner-images-$ref\\images\\windows\"",
       "Copy-Item \"$src\\scripts\" C:\\image\\scripts -Recurse -Force",
       "Copy-Item \"$src\\toolsets\" C:\\image\\toolsets -Recurse -Force",
+      "if (Test-Path \"$src\\assets\") { Copy-Item \"$src\\assets\" C:\\image\\assets -Recurse -Force }",
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2022.json C:\\image\\toolset.json -Force",
+      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '14.19.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -ne 'SSIS.MicrosoftDataToolsIntegrationServices' }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 14.19.1 (toolset ships bare major 14 -> the installer scrapes git.postgresql.org for the latest minor, which rate-limits; the explicit triple takes the deterministic get.enterprisedb.com direct-download path) + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
       "Remove-Item C:\\ri.zip -Force; Remove-Item C:\\ri -Recurse -Force",
@@ -138,48 +140,117 @@ build {
     ]
   }
 
-  // Curated toolchain from runner-images (one provisioner per script so a failure
-  // pinpoints the script). Language-toolchain scripts need no reboot between them.
+  // FULL runner-images toolset (parity with windows-2022) — the complete ordered install set
+  // from build.windows-2022, in reboot-separated discovery groups that mirror the REAL template's
+  // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
+  // has → MSI 1603 / VS-dependent failures.) Discovery mode: ErrorActionPreference=Continue, run
+  // every script, log @@@OK/@@@FAIL + @@@FAILURES. A $noisy whitelist clears two wrapper
+  // false-positives — Configure-BaseImage's benign exec-policy warning and az's stale
+  // $LASTEXITCODE. Skips Windows Updates / Cosmos emulator / Post-Build-Validation (Pester).
+
+  // group 1 — base config, Windows features, chocolatey (+ 7zip for 7z extraction). Note: the
+  // real build.windows-2022 has no Install-WSL2 (a 2025-only script) — dropped here.
   provisioner "powershell" {
     environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Configure-PowerShell.ps1"]
-  }
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Install-Chocolatey.ps1"]
-  }
-  // runner-images' Expand-7ZipArchive helper shells out to 7z.exe (e.g. MinGW ships
-  // as a .7z), and there's no Install-7Zip.ps1 — so install 7-Zip via choco before
-  // any script that extracts a 7z archive.
-  provisioner "powershell" {
     inline = [
-      "choco install -y --no-progress 7zip.install",
-      "if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) { throw \"7zip install failed: $LASTEXITCODE\" }",
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
+      "foreach ($s in @('Configure-WindowsDefender.ps1','Configure-PowerShell.ps1','Install-PowerShellModules.ps1','Install-WindowsFeatures.ps1','Install-Chocolatey.ps1','Configure-BaseImage.ps1','Configure-ImageDataFile.ps1','Configure-SystemEnvironment.ps1','Configure-DotnetSecureChannel.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
+      "choco install -y --no-progress 7zip.install 2>&1 | Out-Null; Write-Host '7zip via choco'",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
     ]
   }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 2 — docker + powershell core + TortoiseSVN (2022-only — its sibling 2025 build drops it)
   provisioner "powershell" {
     environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Install-PowershellCore.ps1"]
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "foreach ($s in @('Install-Docker.ps1','Install-DockerWinCred.ps1','Install-DockerCompose.ps1','Install-PowershellCore.ps1','Install-WebPlatformInstaller.ps1','Install-TortoiseSvn.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
   }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3 — Visual Studio (the big one, ~30 min) + kubernetes tools
   provisioner "powershell" {
     environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Install-Git.ps1"]
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "foreach ($s in @('Install-VisualStudio.ps1','Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
   }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 4 — Wix, WDK (2022-only), VS extensions, cloud CLIs, java, kotlin, openssl. pause_before
+  // lets VS servicing settle after the group-3 reboot (real template's pause_before=2m0s) so the
+  // VSExtensions MSI doesn't hit a pending-reboot 1603. Service Fabric SDK is split out below.
   provisioner "powershell" {
     environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Install-NodeJS.ps1"]
-  }
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline           = ["& C:\\image\\scripts\\build\\Install-Mingw64.ps1"]
+    pause_before     = "2m0s"
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
+      "foreach ($s in @('Install-Wix.ps1','Install-WDK.ps1','Install-VSExtensions.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
   }
 
-  // WebView2 runtime (Wails) — not a runner-images build script; best-effort via choco
-  // (already installed above), tolerant of its non-zero "already present/reboot" codes.
+  // group 4b — Service Fabric SDK in its own provisioner with execution_policy=remotesigned,
+  // then a reboot — exactly what the real template does (must install after VS, with a clean
+  // reboot, or its installer returns exit 1).
   provisioner "powershell" {
+    environment_vars = local.ri_env
+    execution_policy = "remotesigned"
     inline = [
-      "choco install -y --no-progress microsoft-edge-webview2-runtime",
-      "Write-Host \"webview2 choco exit $LASTEXITCODE\"",
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "$s='Install-ServiceFabricSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 5a — the big batch: hosted-toolcache, every language, browsers + selenium, build tools
+  // (Mercurial + NSIS + AliyunCli are 2022-only — 2025's build drops them). Up to RootCA; the
+  // DB/MSI-heavy tail is split into 5b after a reboot so its MSIs don't hit a pending-reboot 1603
+  // (MongoDB) left by the toolcache/SQL/DACFx installer churn here.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Mercurial.ps1','Install-Zstd.ps1','Install-NSIS.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-AliyunCli.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 5b — databases + final build tools after a reboot (MongoDB/LLVM clear their 1603s).
+  // CodeQL pulls its bundle tag from the GitHub API unauthenticated and PostgreSQL probes
+  // EnterpriseDB — both can rate-limit/403 from one build IP; tracked as known-flaky externals.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "foreach ($s in @('Install-MongoDB.ps1','Install-CodeQLBundle.ps1','Configure-Diagnostics.ps1','Install-PostgreSQL.ps1','Configure-DynamicPort.ps1','Configure-GDIProcessHandleQuota.ps1','Configure-Shell.ps1','Configure-DeveloperMode.ps1','Install-LLVM.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 6 — finalize (skip Install-WindowsUpdatesAfterReboot + Post-Build-Validation)
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-User.ps1')",
+      "foreach ($s in @('Invoke-Cleanup.ps1','Install-NativeImages.ps1','Configure-System.ps1','Configure-User.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
   }
