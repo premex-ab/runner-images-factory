@@ -239,7 +239,7 @@ verify_windows() {
   "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
   qemu-img create -q -f qcow2 -b "$(cd "$(dirname "$qcow")" && pwd)/$(basename "$qcow")" -F qcow2 "$wd/overlay.qcow2"
   cp /usr/share/OVMF/OVMF_VARS_4M.fd "$wd/vars.fd"
-  timeout 1200 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
+  timeout 1800 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,file="$wd/vars.fd" \
     -drive file="$wd/overlay.qcow2",if=ide,format=qcow2 \
@@ -248,18 +248,29 @@ verify_windows() {
   qpid=$!
   out="$(WINRM_PORT="$port" "$venv/bin/python3" - <<'PY'
 import winrm, time, os
-s=None
-for _ in range(60):
+PORT=os.environ["WINRM_PORT"]
+# Fresh Session per command (a fresh WinRM shell), retries, and higher timeouts ride out the
+# flaky 400s that monster returns when its qemu is slow under heavy disk load.
+def mk():
+    return winrm.Session("http://127.0.0.1:%s/wsman"%PORT,auth=("Administrator","Bm-Packer-2025!"),transport="ntlm",read_timeout_sec=130,operation_timeout_sec=120)
+up=False
+for _ in range(70):
     try:
-        c=winrm.Session("http://127.0.0.1:%s/wsman"%os.environ["WINRM_PORT"],auth=("Administrator","Bm-Packer-2025!"),transport="ntlm")
-        if b"OK" in c.run_ps('"OK"').std_out: s=c; break
+        if b"OK" in mk().run_ps('"OK"').std_out: up=True; break
     except Exception: pass
     time.sleep(12)
-if s is None:
+if not up:
     print("VERIFY_RESULT=FAIL (WinRM unreachable)"); raise SystemExit
+def ps(cmd):
+    for _ in range(8):
+        try: return mk().run_ps(cmd).std_out.decode()
+        except Exception: time.sleep(5)
+    return None
 fail=0
 for t in ["pwsh","dotnet","git","node","python","java","go","ruby","choco","cmake","bazel","rustc"]:
-    src=s.run_ps("(Get-Command %s -EA SilentlyContinue|Select-Object -First 1).Source"%t).std_out.decode().strip()
+    o=ps("(Get-Command %s -EA SilentlyContinue|Select-Object -First 1).Source"%t)
+    if o is None: print("CHECK %-8s ERROR winrm-transient"%t); fail=1; continue
+    src=o.strip()
     if src: print("CHECK %-8s OK %s"%(t,src))
     else:   print("CHECK %-8s FAIL"%t); fail=1
 print("VERIFY_RESULT="+("PASS" if not fail else "FAIL"))
