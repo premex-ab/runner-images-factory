@@ -133,6 +133,7 @@ build {
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2022.json C:\\image\\toolset.json -Force",
       "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '14.19.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -ne 'SSIS.MicrosoftDataToolsIntegrationServices' }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 14.19.1 (toolset ships bare major 14 -> the installer scrapes git.postgresql.org for the latest minor, which rate-limits; the explicit triple takes the deterministic get.enterprisedb.com direct-download path) + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions)'",
+      "(Get-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1' -Raw) -replace 'L=Wilmington, S=Delaware', 'S=Massachusetts' | Set-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1'; Write-Host 'patched Install-PostgreSQL expected cert subject (EnterpriseDB renewed Delaware -> Massachusetts; the installer is signed with the new cert)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
       "Remove-Item C:\\ri.zip -Force; Remove-Item C:\\ri -Recurse -Force",
