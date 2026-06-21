@@ -249,9 +249,8 @@ verify_windows() {
   out="$(WINRM_PORT="$port" "$venv/bin/python3" - <<'PY'
 import winrm, time, os
 PORT=os.environ["WINRM_PORT"]
-# Fresh Session per call → fresh WinRM shell, so a flaky cleanup_command/get_command_output 400
-# (monster's qemu under I/O load makes WinRM slow) never poisons later commands. Higher timeouts +
-# per-call retries ride out the transients.
+# Fresh Session per command (a fresh WinRM shell), retries, and higher timeouts ride out the
+# flaky 400s that monster returns when its qemu is slow under heavy disk load.
 def mk():
     return winrm.Session("http://127.0.0.1:%s/wsman"%PORT,auth=("Administrator","Bm-Packer-2025!"),transport="ntlm",read_timeout_sec=130,operation_timeout_sec=120)
 up=False
