@@ -175,12 +175,27 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 3 — Visual Studio (the big one, ~30 min) + kubernetes tools
+  // group 3a — Visual Studio in its own provisioner (mirrors the real build.windows-2022 template).
+  // Server 2022's VS bootstrapper signals reboot-required by calling exit 3010/16001; run it bare
+  // with valid_exit_codes so packer accepts that instead of aborting, then a windows-restart.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 3010, 16001]
+    inline = [
+      "Write-Host '@@@RUN Install-VisualStudio.ps1'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3b — confirm VS installed via vswhere (for the @@@OK tally; the bootstrapper's reboot
+  // exit code isn't a failure), then kubernetes tools.
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-VisualStudio.ps1','Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } # VS on Server 2022 calls exit 16001 (reboot-required); run group-3 scripts in a child powershell so that exit doesn't kill the provisioner before its exit 0",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property catalog_productDisplayVersion)) { Write-Host '@@@OK Install-VisualStudio.ps1 (vswhere confirms VS; reboot exit-code handled)' } else { $fails+='Install-VisualStudio.ps1'; Write-Host '@@@FAIL Install-VisualStudio.ps1 : vswhere found no VS' }",
+      "foreach ($s in @('Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
