@@ -179,7 +179,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -189,7 +189,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -199,7 +199,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -209,7 +209,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -225,8 +225,8 @@ build {
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
       "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $inst='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe'",
-      "Write-Host '@@@RUN VS-NativeDesktop-complete'; $q=[char]34; $a=\"modify --installPath $q$vp$q --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --quiet --norestart --wait --nocache\"; $p=Start-Process $inst -Wait -PassThru -ArgumentList $a; Write-Host \"VS modify exit $($p.ExitCode)\"",
-      "$lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { Write-Host \"@@@OK VS-NativeDesktop ($($lk.FullName))\" } else { Write-Host '@@@FAIL VS-NativeDesktop : link.exe still missing' }",
+      "Write-Host '@@@RUN VS-NativeDesktop-complete'; $q=[char]34; $a=\"modify --installPath $q$vp$q --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --includeRecommended --quiet --norestart --wait --nocache\"; $p=Start-Process $inst -Wait -PassThru -ArgumentList $a; Write-Host \"VS modify exit $($p.ExitCode)\"",
+      "$lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { Write-Host \"@@@OK VS-NativeDesktop v143 ($($lk.FullName))\" } else { Write-Host '@@@FAIL VS-NativeDesktop : v143 14.4x link.exe still missing (only v142 present)' }",
       "exit 0",
     ]
   }
@@ -262,7 +262,7 @@ build {
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended MSVC link dir so rustc's cargo-build link step uses link.exe not the GNU coreutil: $($lk.DirectoryName)\" } else { Write-Host 'WARN: MSVC link.exe not found via vswhere' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
+      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended v143 MSVC link dir: $($lk.DirectoryName)\" } else { Write-Host 'WARN: v143 14.4x link.exe not found - NOT prepending v142 (it abort()s rustc 0xc0000409)' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
       "exit 0",
     ]
   }
