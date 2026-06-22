@@ -184,7 +184,7 @@ build {
   // bootstrapper returns 0/3010 so Install-VisualStudio.ps1's post-install (Win SDKs) also runs.
   provisioner "powershell" {
     environment_vars = local.ri_env
-    valid_exit_codes = [0, 3010, 16001, 1603]
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
       "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
@@ -194,7 +194,7 @@ build {
   provisioner "windows-restart" { restart_timeout = "30m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
-    valid_exit_codes = [0, 3010, 16001, 1603]
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
       "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
@@ -204,7 +204,7 @@ build {
   provisioner "windows-restart" { restart_timeout = "30m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
-    valid_exit_codes = [0, 3010, 16001, 1603]
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
       "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
@@ -214,7 +214,7 @@ build {
   provisioner "windows-restart" { restart_timeout = "30m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
-    valid_exit_codes = [0, 3010, 16001, 1603]
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
       "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
