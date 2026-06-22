@@ -77,6 +77,9 @@ source "qemu" "windows2022resume" {
 
   // --- sizing --- (match the install cell: 28 of 32 threads, 48 of 62 GiB)
   cpus   = 28
+  sockets   = 2
+  cores     = 14
+  threads   = 1
   memory = 49152
   format = "qcow2"
   // disk_size intentionally omitted: the OS is already installed and sized on the checkpoint;
