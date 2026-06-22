@@ -163,33 +163,6 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 2a — Docker in its own provisioner. On Server 2022 the Docker/Containers install + image
-  // pull flakily exits 16001 (reboot-required); in the discovery loop (default codes [0]) that aborts.
-  // Run it bare with the widened reboot codes + a restart (like VS), then the docker tooling.
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
-    inline = [
-      "Write-Host '@@@RUN Install-Docker.ps1'",
-      "& 'C:\\image\\scripts\\build\\Install-Docker.ps1'",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
-  // group 2b — docker tooling + powershell core + TortoiseSVN (2022-only). Confirm Docker via its
-  // service for the @@@OK tally (the reboot exit-code isn't a failure), then the rest in the loop.
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "if (Get-Service docker -EA SilentlyContinue) { Write-Host '@@@OK Install-Docker.ps1 (service present; reboot exit-code handled)' } else { $fails+='Install-Docker.ps1'; Write-Host '@@@FAIL Install-Docker.ps1 : no docker service' }",
-      "foreach ($s in @('Install-DockerWinCred.ps1','Install-DockerCompose.ps1','Install-PowershellCore.ps1','Install-WebPlatformInstaller.ps1','Install-TortoiseSvn.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
   // group 3a — Visual Studio. CRITICAL: on Server 2022 the VS installer needs reboots DURING the
   // install — it installs MinShell + the .NET runtime (~1 min), then setup.exe returns 16001
   // (reboot-required-to-continue). A single run + reboot kills setup.exe mid-install, leaving VS
@@ -251,21 +224,6 @@ build {
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
-
-  // group 4 — Wix, WDK (2022-only), VS extensions, cloud CLIs, java, kotlin, openssl. pause_before
-  // lets VS servicing settle after the group-3 reboot (real template's pause_before=2m0s) so the
-  // VSExtensions MSI doesn't hit a pending-reboot 1603. Service Fabric SDK is split out below.
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    pause_before     = "2m0s"
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
-      "foreach ($s in @('Install-Wix.ps1','Install-WDK.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-
   // VS extensions in a dedicated in-process provisioner. Start-Process strips the in-process VS dev
   // environment, so VSIXInstaller returns 2003 ("not installable on installed product"); running
   // in-process (a fresh powershell with the full machine env) matches the real template.
@@ -276,37 +234,6 @@ build {
       "exit 0",
     ]
   }
-
-  // group 4b — Service Fabric SDK in its own provisioner with execution_policy=remotesigned,
-  // then a reboot — exactly what the real template does (must install after VS, with a clean
-  // reboot, or its installer returns exit 1).
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    execution_policy = "remotesigned"
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "$s='Install-ServiceFabricSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
-  // group 5a — the big batch: hosted-toolcache, every language, browsers + selenium, build tools
-  // (Mercurial + NSIS + AliyunCli are 2022-only — 2025's build drops them). Up to RootCA; the
-  // DB/MSI-heavy tail is split into 5b after a reboot so its MSIs don't hit a pending-reboot 1603
-  // (MongoDB) left by the toolcache/SQL/DACFx installer churn here.
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Mercurial.ps1','Install-Zstd.ps1','Install-NSIS.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-AliyunCli.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
   // Rust in a dedicated in-process provisioner (after the group-5a reboot; fresh powershell + full
   // machine env). Start-Process strips the VS dev env so rustc's MSVC-linker detection falls back to
   // a PATH `link` (the GNU coreutil -> "extra operand") and cargo build scripts fail to link;
@@ -316,82 +243,6 @@ build {
     inline = [
       "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended MSVC link dir so rustc's cargo-build link step uses link.exe not the GNU coreutil: $($lk.DirectoryName)\" } else { Write-Host 'WARN: MSVC link.exe not found via vswhere' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
       "exit 0",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
-  // group 5b — databases + final build tools after a reboot (MongoDB/LLVM clear their 1603s).
-  // CodeQL pulls its bundle tag from the GitHub API unauthenticated and PostgreSQL probes
-  // EnterpriseDB — both can rate-limit/403 from one build IP; tracked as known-flaky externals.
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-MongoDB.ps1','Install-CodeQLBundle.ps1','Configure-Diagnostics.ps1','Install-PostgreSQL.ps1','Configure-DynamicPort.ps1','Configure-GDIProcessHandleQuota.ps1','Configure-Shell.ps1','Configure-DeveloperMode.ps1','Install-LLVM.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-  provisioner "windows-restart" { restart_timeout = "30m" }
-
-  // group 6 — finalize (skip Install-WindowsUpdatesAfterReboot + Post-Build-Validation)
-  provisioner "powershell" {
-    environment_vars = local.ri_env
-    inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-User.ps1')",
-      "foreach ($s in @('Invoke-Cleanup.ps1','Install-NativeImages.ps1','Configure-System.ps1','Configure-User.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
-      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
-      "exit 0",
-    ]
-  }
-
-  // 3. The GitHub Actions runner, baked under C:\actions-runner so the agent's
-  //    cloudbase-init seed (windowsUserData) skips the download at runtime.
-  provisioner "powershell" {
-    inline = [
-      "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-      "New-Item -ItemType Directory -Force -Path C:\\actions-runner | Out-Null",
-      "$url = \"https://github.com/actions/runner/releases/download/v${var.runner_version}/actions-runner-win-x64-${var.runner_version}.zip\"",
-      "$zip = 'C:\\actions-runner\\runner.zip'",
-      "$ok = $false",
-      "for ($i = 1; $i -le 5; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $url -OutFile $zip; if ((Get-Item $zip).Length -gt 1MB) { $ok = $true; break } } catch { Write-Host \"runner download attempt $i failed: $_\" }; Start-Sleep 10 }",
-      "if (-not $ok) { throw 'actions-runner download failed after 5 attempts' }",
-      "Expand-Archive -LiteralPath $zip -DestinationPath C:\\actions-runner -Force",
-      "Remove-Item $zip -Force",
-      "Write-Host 'actions-runner baked'",
-    ]
-  }
-
-  // 4. cloudbase-init: the Windows cloud-init. Reads the agent's NoCloud cidata
-  //    seed each boot — applies the static network-config (isolated bridge has no
-  //    DHCP) and runs the #ps1_sysnative userdata (run.cmd --jitconfig).
-  provisioner "powershell" {
-    inline = [
-      "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-      "$msi = 'C:\\cloudbase-init.msi'",
-      "$url = 'https://github.com/cloudbase/cloudbase-init/releases/download/1.1.6/CloudbaseInitSetup_1_1_6_x64.msi'",
-      "$ok = $false",
-      "for ($i = 1; $i -le 5; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri $url -OutFile $msi; if ((Get-Item $msi).Length -gt 1MB) { $ok = $true; break } } catch { Write-Host \"cloudbase-init download attempt $i failed: $_\" }; Start-Sleep 10 }",
-      "if (-not $ok) { throw 'cloudbase-init MSI download failed after 5 attempts' }",
-      "$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList \"/i $msi /qn /norestart RUN_SERVICE_AS_LOCAL_SYSTEM=1\"",
-      "if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw \"cloudbase-init msiexec failed: $($p.ExitCode)\" }",
-      "$cbidir = 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init'; if (-not (Test-Path $cbidir) -or @(Get-ChildItem $cbidir -Recurse -File -ErrorAction SilentlyContinue).Count -lt 50) { throw 'cloudbase-init install incomplete (dir missing or sparse)' }",
-      "Remove-Item $msi -Force",
-      "Write-Host 'cloudbase-init installed'",
-    ]
-  }
-
-  // cloudbase-init config: NoCloud config-drive (the cidata CD) + the network +
-  // userdata plugins. allow_reboot=false / inject_user_password=false so a runtime
-  // boot just applies the static IP and runs the JIT userdata.
-  provisioner "file" {
-    source      = "./scripts/cloudbase-init.conf"
-    destination = "C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\conf\\cloudbase-init.conf"
-  }
-  provisioner "powershell" {
-    inline = [
-      "Copy-Item 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\conf\\cloudbase-init.conf' 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\conf\\cloudbase-init-unattend.conf' -Force",
-      "Write-Host 'cloudbase-init configured'",
     ]
   }
 }
