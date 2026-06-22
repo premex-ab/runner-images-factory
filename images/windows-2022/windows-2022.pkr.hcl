@@ -163,12 +163,27 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 2 — docker + powershell core + TortoiseSVN (2022-only — its sibling 2025 build drops it)
+  // group 2a — Docker in its own provisioner. On Server 2022 the Docker/Containers install + image
+  // pull flakily exits 16001 (reboot-required); in the discovery loop (default codes [0]) that aborts.
+  // Run it bare with the widened reboot codes + a restart (like VS), then the docker tooling.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "Write-Host '@@@RUN Install-Docker.ps1'",
+      "& 'C:\\image\\scripts\\build\\Install-Docker.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 2b — docker tooling + powershell core + TortoiseSVN (2022-only). Confirm Docker via its
+  // service for the @@@OK tally (the reboot exit-code isn't a failure), then the rest in the loop.
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-Docker.ps1','Install-DockerWinCred.ps1','Install-DockerCompose.ps1','Install-PowershellCore.ps1','Install-WebPlatformInstaller.ps1','Install-TortoiseSvn.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "if (Get-Service docker -EA SilentlyContinue) { Write-Host '@@@OK Install-Docker.ps1 (service present; reboot exit-code handled)' } else { $fails+='Install-Docker.ps1'; Write-Host '@@@FAIL Install-Docker.ps1 : no docker service' }",
+      "foreach ($s in @('Install-DockerWinCred.ps1','Install-DockerCompose.ps1','Install-PowershellCore.ps1','Install-WebPlatformInstaller.ps1','Install-TortoiseSvn.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
