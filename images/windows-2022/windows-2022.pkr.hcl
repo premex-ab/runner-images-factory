@@ -175,14 +175,49 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 3a — Visual Studio in its own provisioner (mirrors the real build.windows-2022 template).
-  // Server 2022's VS bootstrapper signals reboot-required by calling exit 3010/16001; run it bare
-  // with valid_exit_codes so packer accepts that instead of aborting, then a windows-restart.
+  // group 3a — Visual Studio. CRITICAL: on Server 2022 the VS installer needs reboots DURING the
+  // install — it installs MinShell + the .NET runtime (~1 min), then setup.exe returns 16001
+  // (reboot-required-to-continue). A single run + reboot kills setup.exe mid-install, leaving VS
+  // INCOMPLETE: vswhere -latest reports nothing, VC\Tools\MSVC is empty (no MSVC linker -> Rust
+  // can't link, VSExtensions has no valid product). Fix: run it up to 4x with reboots between, each
+  // pass resuming; skip once vswhere -latest reports a COMPLETE instance. The completing pass's
+  // bootstrapper returns 0/3010 so Install-VisualStudio.ps1's post-install (Win SDKs) also runs.
   provisioner "powershell" {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 3010, 16001]
     inline = [
-      "Write-Host '@@@RUN Install-VisualStudio.ps1'",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 3010, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 3010, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 3010, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
   }
