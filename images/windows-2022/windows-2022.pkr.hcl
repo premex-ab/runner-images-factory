@@ -46,8 +46,13 @@ source "qemu" "windows2022" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing --- (debug branch: dedicated host, max it out — 28 of 32 threads, 48 of 62 GiB)
+  // --- sizing --- (dedicated host: 28 of 32 threads as a SANE topology, 48 of 62 GiB).
+  // A bare `cpus = 28` emits `-smp 28` = 28 single-core SOCKETS, which Server 2022 mishandles
+  // (wedges the per-processor shutdown -> reboot never completes). 2 sockets x 14 cores fixes it.
   cpus      = 28
+  sockets   = 2
+  cores     = 14
+  threads   = 1
   memory    = 49152
   disk_size = "204800"
   format    = "qcow2"
@@ -161,7 +166,7 @@ build {
       "exit 0",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
 
   // group 3a — Visual Studio. CRITICAL: on Server 2022 the VS installer needs reboots DURING the
   // install — it installs MinShell + the .NET runtime (~1 min), then setup.exe returns 16001
@@ -179,7 +184,7 @@ build {
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
@@ -189,7 +194,7 @@ build {
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
@@ -199,7 +204,7 @@ build {
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
   provisioner "powershell" {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
@@ -209,7 +214,7 @@ build {
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
 
   // group 3a-fix — explicitly complete the C++ (NativeDesktop) workload. The 4-pass loop now gates
   // on link.exe (not just instance registration), but as a hard guarantee against Server 2022's
@@ -225,7 +230,7 @@ build {
       "exit 0",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
 
   // group 3b — confirm VS installed via vswhere (for the @@@OK tally; the bootstrapper's reboot
   // exit code isn't a failure), then kubernetes tools.
@@ -239,7 +244,7 @@ build {
       "exit 0",
     ]
   }
-  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "windows-restart" { restart_timeout = "60m" }
   // VS extensions in a dedicated in-process provisioner. Start-Process strips the in-process VS dev
   // environment, so VSIXInstaller returns 2003 ("not installable on installed product"); running
   // in-process (a fresh powershell with the full machine env) matches the real template.
