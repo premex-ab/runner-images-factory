@@ -46,9 +46,9 @@ source "qemu" "windows2022" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing ---
-  cpus      = 4
-  memory    = 8192
+  // --- sizing --- (debug branch: dedicated host, max it out — 28 of 32 threads, 48 of 62 GiB)
+  cpus      = 28
+  memory    = 49152
   disk_size = "204800"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
