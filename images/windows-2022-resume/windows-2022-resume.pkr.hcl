@@ -172,6 +172,9 @@ build {
       "exit 0",
     ]
   }
+  // Reboot to settle the VS installer/COM state after VSExtensions, so Rust's MSVC detection doesn't
+  // hit a transient empty vswhere (matches the install cell's reboot-before-Rust).
+  provisioner "windows-restart" { restart_timeout = "30m" }
   // Rust in a dedicated in-process provisioner (fresh powershell + full machine env). Start-Process
   // strips the VS dev env so rustc's MSVC-linker detection falls back to a PATH `link` (the GNU
   // coreutil -> "extra operand") and cargo build scripts fail to link; in-process matches the real
@@ -179,7 +182,7 @@ build {
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended MSVC link dir so rustc's cargo-build link step uses link.exe not the GNU coreutil: $($lk.DirectoryName)\" } else { Write-Host 'WARN: MSVC link.exe not found via vswhere' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
+      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $lk=Get-ChildItem \"C:\\Program Files\\Microsoft Visual Studio\\2022\\*\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended v143 MSVC link dir (from disk, not vswhere): $($lk.DirectoryName)\" } else { Write-Host 'WARN: v143 14.4x link.exe not found on disk' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
       "exit 0",
     ]
   }
@@ -192,7 +195,7 @@ build {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Stop'",
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if (-not $lk) { throw 'VERIFY FAIL: MSVC link.exe missing (checkpoint was not VS-complete)' }; Write-Host \"@@@VERIFY link.exe OK $($lk.FullName)\"",
+      "$lk=Get-ChildItem \"C:\\Program Files\\Microsoft Visual Studio\\2022\\*\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if (-not $lk) { throw 'VERIFY FAIL: v143 14.4x MSVC link.exe missing on disk' }; Write-Host \"@@@VERIFY v143 link.exe OK $($lk.FullName)\"",
       "[Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')}; $env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User')",
       "$rc=(& rustc --version 2>&1 | Out-String).Trim(); if ($LASTEXITCODE -ne 0 -or -not $rc) { throw \"VERIFY FAIL: rustc --version failed: $rc\" }; Write-Host \"@@@VERIFY rustc OK $rc\"",
       "$cg=(& cargo --version 2>&1 | Out-String).Trim(); if ($LASTEXITCODE -ne 0 -or -not $cg) { throw \"VERIFY FAIL: cargo --version failed: $cg\" }; Write-Host \"@@@VERIFY cargo OK $cg\"",
