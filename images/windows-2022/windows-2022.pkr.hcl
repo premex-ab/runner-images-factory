@@ -174,7 +174,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -184,7 +184,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -194,7 +194,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -204,9 +204,25 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (VC++ link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3a-fix — explicitly complete the C++ (NativeDesktop) workload. The 4-pass loop now gates
+  // on link.exe (not just instance registration), but as a hard guarantee against Server 2022's
+  // mid-install reboots leaving VC.Tools unfinished, run setup.exe modify --add NativeDesktop to a
+  // real terminal exit so the MSVC linker is on disk before Rust/VSExtensions.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $inst='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe'",
+      "Write-Host '@@@RUN VS-NativeDesktop-complete'; $q=[char]34; $a=\"modify --installPath $q$vp$q --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended --quiet --norestart --wait --nocache\"; $p=Start-Process $inst -Wait -PassThru -ArgumentList $a; Write-Host \"VS modify exit $($p.ExitCode)\"",
+      "$lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { Write-Host \"@@@OK VS-NativeDesktop ($($lk.FullName))\" } else { Write-Host '@@@FAIL VS-NativeDesktop : link.exe still missing' }",
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
