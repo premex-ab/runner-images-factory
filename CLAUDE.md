@@ -66,6 +66,12 @@ tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See
 
 ## Status + remaining work
 
-Fast per-tool iteration now uses the **checkpoint loop** (`./build.sh checkpoint`, #16) —
-no full rebuild needed. **windows-2025** still needs a parity rebuild (**#15**); only
-**Rust (#13)** and **Android SDK (#14)** remain on windows-2022.
+Fast per-tool iteration uses the **checkpoint loop** (`./build.sh checkpoint`, #16). **windows-2025**
+is structurally aligned to the proven windows-2022 VS build (#15) — 4-pass `link.exe`-gated VS +
+NativeDesktop completion, dedicated VSExtensions provisioner, WiX-vsix drop, 28(2×14)/48G sizing — and
+builds VS + Rust + the full toolset. Open items, all environmental (not cell bugs):
+- A **`-cpu host` CET shadow-stack `STATUS_STACK_*` crash** is the real root cause of **#13** — it
+  crashes `rustc`'s cargo install on win22 *and* `VSIXInstaller` on win25 (**#23**). Fix: a CET-safe
+  CPU model / newer QEMU (our QEMU 8.2 can't disable CET), validated via the loop (`RIF_CP_CPU`).
+- `verify_windows`/`checkpoint_run` leak the qemu guest on interrupt — add a cleanup trap (**#24**).
+  (That orphan leak caused the only Android SDK build failure; Android installs fine with host headroom.)

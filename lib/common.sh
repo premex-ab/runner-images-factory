@@ -248,7 +248,7 @@ _winrm_boot() {
   else
     drive="$(_abspath "$disk")"
   fi
-  qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m "${RIF_CP_MEM:-8192}" \
+  qemu-system-x86_64 -machine q35,accel=kvm -cpu "${RIF_CP_CPU:-host}" -m "${RIF_CP_MEM:-8192}" \
     -smp "${RIF_CP_SMP:-cores=4,sockets=1,threads=1}" \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,file="$RIF_WD/vars.fd" \

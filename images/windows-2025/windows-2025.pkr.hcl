@@ -46,9 +46,14 @@ source "qemu" "windows2025" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing ---
-  cpus      = 4
-  memory    = 8192
+  // --- sizing --- (dedicated host: 28 of 32 threads as a SANE topology, 48 of 62 GiB).
+  // A bare `cpus = 28` emits `-smp 28` = 28 single-core SOCKETS, which Server mishandles
+  // (wedges the per-processor shutdown -> reboot never completes). 2 sockets x 14 cores fixes it.
+  cpus      = 28
+  sockets   = 2
+  cores     = 14
+  threads   = 1
+  memory    = 49152
   disk_size = "204800"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
@@ -132,7 +137,7 @@ build {
       "if (Test-Path \"$src\\assets\") { Copy-Item \"$src\\assets\" C:\\image\\assets -Recurse -Force }",
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2025.json C:\\image\\toolset.json -Force",
-      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -ne 'SSIS.MicrosoftDataToolsIntegrationServices' }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions)'",
+      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -notin @('SSIS.MicrosoftDataToolsIntegrationServices','WixToolset.WixToolsetVisualStudio2022Extension') }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 + dropped the SSIS vsix (installer 1603s, blocks the other VS extensions) + dropped the Wix vsix (WiX v3 Votive is not installable into VS 17.x -> VSIXInstaller 0x80131509; use the standalone wix dotnet tool via Install-Wix.ps1 instead)'",
       "(Get-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1' -Raw) -replace 'L=Wilmington, S=Delaware', 'S=Massachusetts' | Set-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1'; Write-Host 'patched Install-PostgreSQL expected cert subject (EnterpriseDB renewed Delaware -> Massachusetts; the installer is signed with the new cert)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
@@ -183,12 +188,73 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // group 3 — Visual Studio (the big one, ~30 min) + kubernetes tools
+  // group 3a — Visual Studio. CRITICAL: on Windows Server the VS installer needs reboots DURING the
+  // install — it installs MinShell + the .NET runtime (~1 min), then setup.exe returns 16001
+  // (reboot-required-to-continue). A single run + reboot kills setup.exe mid-install, leaving VS
+  // INCOMPLETE: vswhere -latest reports nothing, VC\Tools\MSVC is empty (no MSVC linker). Fix: run it
+  // up to 4x with reboots between, each pass resuming; skip once a v143 14.4x link.exe is present.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
+      "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
+      "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3a-fix — explicitly complete the C++ (NativeDesktop) workload so the v143 MSVC linker is on
+  // disk before VSExtensions. setup.exe modify --add NativeDesktop to a real terminal exit (no --wait).
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $inst='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe'",
+      "Write-Host '@@@RUN VS-NativeDesktop-complete'; $q=[char]34; $a=\"modify --installPath $q$vp$q --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --includeRecommended --quiet --norestart --nocache\"; $p=Start-Process $inst -Wait -PassThru -ArgumentList $a; Write-Host \"VS modify exit $($p.ExitCode)\"",
+      "$lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { Write-Host \"@@@OK VS-NativeDesktop v143 ($($lk.FullName))\" } else { Write-Host '@@@FAIL VS-NativeDesktop : v143 14.4x link.exe still missing (only v142 present)' }",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3b — confirm VS installed via vswhere (for the @@@OK tally), then kubernetes tools.
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-VisualStudio.ps1','Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property catalog_productDisplayVersion)) { Write-Host '@@@OK Install-VisualStudio.ps1 (vswhere confirms VS; reboot exit-code handled)' } else { $fails+='Install-VisualStudio.ps1'; Write-Host '@@@FAIL Install-VisualStudio.ps1 : vswhere found no VS' }",
+      "foreach ($s in @('Install-KubernetesTools.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
@@ -203,8 +269,19 @@ build {
     pause_before     = "2m0s"
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
-      "foreach ($s in @('Install-Wix.ps1','Install-VSExtensions.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
+      "foreach ($s in @('Install-Wix.ps1','Install-AzureCli.ps1','Install-AzureDevOpsCli.ps1','Install-ChocolateyPackages.ps1','Install-JavaTools.ps1','Install-Kotlin.ps1','Install-OpenSSL.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+
+  // VS extensions in a dedicated in-process provisioner. Start-Process strips the in-process VS dev
+  // environment, so VSIXInstaller returns 2003 ("not installable on installed product"); running
+  // in-process (a fresh powershell with the full machine env) matches the real template.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $s='Install-VSExtensions.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
       "exit 0",
     ]
   }
