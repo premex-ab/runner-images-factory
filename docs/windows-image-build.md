@@ -58,12 +58,23 @@ be kept:
   `foreach` that *hid* the Votive + Rust failures (and its staging only drops the SSIS vsix, not
   the Wix one). Port the windows-2022 fixes and rebuild + verify.
 
-## Fast iteration (#16)
+## Fast iteration (#16): checkpoint loop
 
-Full rebuilds are ~3–4 h (VS dominates), so a per-tool fix shouldn't need one: boot the built
-qcow2 with the `verify_windows` recipe, run the fixed `Install-*.ps1` over WinRM, check `@@@OK`.
-The open blocker: a Packer-based *resume* cell can't get WinRM to connect when booting an
-already-installed-Windows disk (port opens, handshake never completes → 30-min timeout), even
-though a **manual** boot over WinRM connects fine. #16 is to make that boot-and-patch loop
-reliable (fix the Packer resume path, or a standalone "boot artifact → run N scripts → capture"
-helper).
+Full rebuilds are ~3–4 h (VS dominates), so a per-tool fix shouldn't need one. The
+`./build.sh checkpoint` helper boots a built qcow2 over WinRM (the proven
+`verify_windows` recipe, but the disk WRITABLE) and snapshots each step as a qcow2
+overlay chain under `out/<image>/checkpoints/`:
+
+    ./build.sh checkpoint windows-2022 init --from out/windows-2022/image/windows-2022.qcow2
+    ./build.sh checkpoint windows-2022 run  --script /path/to/fix-rust.ps1   # boot + run + clean shutdown
+    ./build.sh checkpoint windows-2022 commit after-rust   # froze it as a checkpoint; or:
+    ./build.sh checkpoint windows-2022 rollback            # discard the run, retry a different tweak
+    ./build.sh checkpoint windows-2022 list
+
+`run` executes the script(s) in-process with the runner-images env (`IMAGE_FOLDER`,
+`IMAGE_OS`, …), so they behave like a `.pkr.hcl` provisioner — the iteration unit is a
+chunk of PowerShell (the wrapper logic you're tuning), not just a bare `Install-*.ps1`.
+A WinRM drop mid-run is treated as a reboot and reconnected. **Once a tweak works,
+fold it back into the `.pkr.hcl` cell** — the checkpoint loop is for discovery; `main`'s
+source of truth stays the Packer template. This bypasses Packer (whose *resume* path
+can't reconnect WinRM to an already-installed disk); the driver is `lib/winrm_run.py`.

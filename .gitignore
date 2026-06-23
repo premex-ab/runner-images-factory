@@ -9,3 +9,10 @@ build.log
 # packer
 .packer.d/
 crash.log
+# python test artifacts
+__pycache__/
+*.pyc
+# subagent-driven-development scratch (ledger, task briefs, reports, review packages)
+.superpowers/
+# brainstorming/planning process docs (spec + implementation plan) — not shipped
+docs/superpowers/

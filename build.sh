@@ -5,6 +5,7 @@
 #   ./build.sh windows-2025 --iso /path/to/server2025-eval.iso
 #   ./build.sh macos-tahoe                   # macOS via Tart (Apple Silicon Mac only)
 #   ./build.sh verify ubuntu-2404            # boot the built image + run its toolchain
+#   ./build.sh checkpoint windows-2022 init --from out/windows-2022/image/windows-2022.qcow2
 # Output: out/<image>/<image>.qcow2 (+ .sha256). Bring your own OS media — see README.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -25,8 +26,17 @@ case "$cmd" in
       *) require_linux_kvm; verify_image "$vimg" "${3:-$(find "$HERE/out/$vimg" -name '*.qcow2' 2>/dev/null | head -1)}" ;;
     esac
     exit 0 ;;
+  checkpoint)
+    cimg="${2:-}"; sub="${3:-}"
+    { [ -n "$cimg" ] && [ -d "$HERE/images/$cimg" ]; } || die "usage: ./build.sh checkpoint <image> <init|run|commit|rollback|list> ..."
+    case "$cimg" in windows-*) : ;; *) die "checkpoint is Windows-only (got '$cimg')" ;; esac
+    [ -n "$sub" ] || die "usage: ./build.sh checkpoint $cimg <init|run|commit|rollback|list> ..."
+    require_linux_kvm
+    shift 3
+    checkpoint_dispatch "$cimg" "$sub" "$@"
+    exit 0 ;;
   help | -h | --help)
-    sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
 esac
 
