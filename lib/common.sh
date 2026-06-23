@@ -280,8 +280,9 @@ verify_windows() {
     || die "could not fetch toolset-$ver.json at $ref"
   py="$(_winrm_venv)"
   _winrm_boot "$qcow" 1   # read-only throwaway overlay — never mutates the image
-  report="$(timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
-    --script "$HERE/images/windows-2022/scripts/Report-Toolset.ps1" 2>&1)" || true
+  # the reporter is one shared script (lives in the windows-2022 cell), used to verify both cells
+  local reporter="$HERE/images/windows-2022/scripts/Report-Toolset.ps1"
+  report="$(timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" --script "$reporter" 2>&1)" || true
   kill "$RIF_QPID" 2>/dev/null || true
   rm -rf "$RIF_WD"
   echo "--- toolset parity ---"

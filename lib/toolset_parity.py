@@ -8,7 +8,9 @@ import argparse, json, sys
 
 # (category, name) or bare category our build intentionally deviates on — exempt from the gate,
 # reported as SKIP for transparency. Seeded empty: the version-asserted categories below are all
-# tools we install; documented drops (SSIS/WiX vsix) live in categories we don't version-assert.
+# tools we install; documented drops (SSIS/WiX vsix) live in categories we don't version-assert, so
+# they never enter the expected set. Only an intentionally-dropped *version-asserted* tool (a
+# toolcache/dotnet/node/java/scalar entry the upstream manifest lists but we skip) needs an entry here.
 SKIP = set()  # e.g. add ("toolcache", "PyPy") with a reason if a version is intentionally dropped
 
 # Categories shaped as {"version": "<spec>"} that we version-assert.
@@ -43,7 +45,7 @@ def parse_manifest(d):
         ver = d.get(cat, {}).get("version")
         if ver:
             out.append((cat, cat, ver))
-    return out
+    return list(dict.fromkeys(out))
 
 
 def parse_report(text):
