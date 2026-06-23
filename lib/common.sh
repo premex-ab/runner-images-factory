@@ -376,3 +376,24 @@ checkpoint_run() {
   fi
   return "$rc"
 }
+
+# Route ./build.sh checkpoint <image> <sub> ... to the right operation.
+checkpoint_dispatch() {
+  local image="$1" sub="$2"; shift 2
+  case "$sub" in
+    init)
+      local from="" force=""
+      while [ $# -gt 0 ]; do case "$1" in
+        --from)  from="$2"; shift 2 ;;
+        --force) force="--force"; shift ;;
+        *) die "unknown flag: $1 (usage: checkpoint $image init --from <qcow2> [--force])" ;;
+      esac; done
+      [ -n "$from" ] || die "usage: checkpoint $image init --from <qcow2> [--force]"
+      checkpoint_init "$image" "$from" "$force" ;;
+    run)      checkpoint_run "$image" "$@" ;;
+    commit)   checkpoint_commit "$image" "${1:-}" ;;
+    rollback) checkpoint_rollback "$image" ;;
+    list)     checkpoint_list "$image" ;;
+    *) die "unknown checkpoint subcommand: '$sub' (init|run|commit|rollback|list)" ;;
+  esac
+}
