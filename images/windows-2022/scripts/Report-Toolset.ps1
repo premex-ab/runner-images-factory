@@ -7,6 +7,11 @@ function Emit($cat, $name, $ver) {
   if ($ver) { Write-Host "@@@TOOL $cat $name $ver" } else { Write-Host "@@@TOOL $cat $name MISSING" }
 }
 function Ver([string] $text) { if ($text -match '(\d+\.\d+(\.\d+)*)') { return $Matches[1] } else { return '' } }
+function ProbeVer([scriptblock] $sb) {
+  # Run an external version command; return its version, or '' if the tool is absent/errors. A bare
+  # unknown command throws a terminating CommandNotFoundException even under -EA Continue, so try/catch.
+  try { return (Ver (& $sb 2>&1 | Out-String)) } catch { return '' }
+}
 
 # toolcache: one line per installed version directory
 $tc = 'C:\hostedtoolcache\windows'
@@ -17,11 +22,13 @@ foreach ($name in 'Ruby', 'Python', 'PyPy', 'node', 'go') {
 }
 
 # dotnet SDKs (one line per installed SDK)
-$sdks = & dotnet --list-sdks 2>$null
-if ($sdks) { foreach ($l in $sdks) { $v = Ver $l; if ($v) { Emit 'dotnet' 'sdk' $v } } } else { Emit 'dotnet' 'sdk' '' }
+$sdks = $null
+try { $sdks = & dotnet --list-sdks 2>&1 } catch {}
+$sdkVers = @($sdks | ForEach-Object { Ver $_ } | Where-Object { $_ })
+if ($sdkVers) { foreach ($v in $sdkVers) { Emit 'dotnet' 'sdk' $v } } else { Emit 'dotnet' 'sdk' '' }
 
 # node (default on PATH)
-Emit 'node' 'node' (Ver ((& node --version 2>$null) | Out-String))
+Emit 'node' 'node' (ProbeVer { & node --version })
 
 # java majors via JAVA_HOME_<major>_X64 machine env vars
 foreach ($m in 8, 11, 17, 21, 25) {
@@ -31,16 +38,16 @@ foreach ($m in 8, 11, 17, 21, 25) {
 
 # scalar PATH tools: category -> version command
 $probes = [ordered]@{
-  php     = { & php --version 2>$null | Out-String }
-  mongodb = { & mongod --version 2>$null | Out-String }
-  mysql   = { & mysql --version 2>$null | Out-String }
-  llvm    = { & clang --version 2>$null | Out-String }
-  kotlin  = { & kotlinc -version 2>&1 | Out-String }
-  openssl = { & openssl version 2>$null | Out-String }
-  maven   = { & mvn --version 2>$null | Out-String }
-  pwsh    = { & pwsh --version 2>$null | Out-String }
+  php     = { & php --version }
+  mongodb = { & mongod --version }
+  mysql   = { & mysql --version }
+  llvm    = { & clang --version }
+  kotlin  = { & kotlinc -version }
+  openssl = { & openssl version }
+  maven   = { & mvn --version }
+  pwsh    = { & pwsh --version }
 }
-foreach ($cat in $probes.Keys) { Emit $cat $cat (Ver (& $probes[$cat])) }
+foreach ($cat in $probes.Keys) { Emit $cat $cat (ProbeVer $probes[$cat]) }
 
 # postgresql: install-dir major (no PATH binary by default)
 $pg = Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -EA SilentlyContinue | Select-Object -First 1
@@ -48,6 +55,6 @@ Emit 'postgresql' 'postgresql' $(if ($pg) { $pg.Name } else { '' })
 
 # nsis: makensis /VERSION
 $nsis = 'C:\Program Files (x86)\NSIS\makensis.exe'
-Emit 'nsis' 'nsis' $(if (Test-Path $nsis) { Ver ((& $nsis '/VERSION') 2>$null | Out-String) } else { '' })
+Emit 'nsis' 'nsis' $(if (Test-Path $nsis) { ProbeVer { & $nsis '/VERSION' } } else { '' })
 
 Write-Host '@@@REPORT-DONE'
