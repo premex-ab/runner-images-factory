@@ -9,3 +9,6 @@ build.log
 # packer
 .packer.d/
 crash.log
+# python test artifacts
+__pycache__/
+*.pyc
