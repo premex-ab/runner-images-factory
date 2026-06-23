@@ -12,3 +12,5 @@ crash.log
 # python test artifacts
 __pycache__/
 *.pyc
+# subagent-driven-development scratch (ledger, task briefs, reports, review packages)
+.superpowers/
