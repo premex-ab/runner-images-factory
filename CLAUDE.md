@@ -46,6 +46,12 @@ provisioner running a runner-images `Install-*.ps1`.
 `Administrator` / the `winrm_password` var). Reuse it to inspect or hand-run a single
 `Install-*.ps1` against a built image in minutes instead of a 3–4 h rebuild.
 
+For **iterating** a fix (not just inspecting), use the **checkpoint loop**:
+`./build.sh checkpoint <image> <init|run|commit|rollback|list>` boots the writable image
+over the same WinRM recipe and snapshots each step as a qcow2 overlay chain — install a
+tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See the
+[fast-iteration playbook](docs/windows-image-build.md#fast-iteration-16--checkpoint-loop).
+
 ## Conventions
 
 - Shell + Packer HCL + PowerShell-embedded-in-HCL. No app code.
@@ -55,7 +61,6 @@ provisioner running a runner-images `Install-*.ps1`.
 
 ## Status + remaining work
 
-windows-2022 builds the full toolset (**80/82**); only **Rust (#13)** and **Android SDK (#14)**
-remain. **windows-2025** needs a parity rebuild (**#15**). See
-[docs/windows-image-build.md](docs/windows-image-build.md) for the playbook and issues
-**#13–#18** (tracking: **#18**) for the open work.
+Fast per-tool iteration now uses the **checkpoint loop** (`./build.sh checkpoint`, #16) —
+no full rebuild needed. **windows-2025** still needs a parity rebuild (**#15**); only
+**Rust (#13)** and **Android SDK (#14)** remain on windows-2022.
