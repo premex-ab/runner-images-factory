@@ -52,6 +52,11 @@ over the same WinRM recipe and snapshots each step as a qcow2 overlay chain — 
 tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See the
 [fast-iteration playbook](docs/windows-image-build.md#fast-iteration-16-checkpoint-loop).
 
+`verify_windows` now measures **toolset parity**: it compares the installed image against the upstream
+`toolset-<ver>.json` (fetched at the cell's `ri_ref`) via a guest reporter + the pure host comparator
+`lib/toolset_parity.py`, gating on real missing/mismatched tools. See the
+[toolset-parity note](docs/windows-image-build.md#toolset-parity-17).
+
 ## Conventions
 
 - Shell + Packer HCL + PowerShell-embedded-in-HCL. No app code.
