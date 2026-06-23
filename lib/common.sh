@@ -95,7 +95,7 @@ verify_image() {
   local image="$1" qcow="${2:-}"
   case "$image" in
     ubuntu-*)  [ -f "$qcow" ] || die "no image at: $qcow"; verify_ubuntu "$qcow" ;;
-    windows-*) [ -f "$qcow" ] || die "no image at: $qcow"; verify_windows "$qcow" ;;
+    windows-*) [ -f "$qcow" ] || die "no image at: $qcow"; verify_windows "$image" "$qcow" ;;
     macos-*)   verify_macos "$image" ;;
     *) die "no verifier for '$image'" ;;
   esac
@@ -258,20 +258,38 @@ _winrm_boot() {
   RIF_QPID=$!
 }
 
+# The pinned runner-images ref for a windows cell (grepped from its .pkr.hcl).
+_ri_ref_for() {
+  local image="$1"
+  grep -oP 'ri_ref\s*=\s*"\K[0-9a-f]{40}' "$HERE/images/$image/$image.pkr.hcl" | head -1
+}
+
+# Boot a built Windows image (read-only throwaway overlay) and verify its installed toolset against
+# the upstream toolset manifest: a guest reporter (Report-Toolset.ps1) emits @@@TOOL facts over WinRM,
+# the pure host comparator (lib/toolset_parity.py) checks them against the pristine toolset-<ver>.json
+# fetched at the cell's pinned ri_ref, and gates on real parity misses.
 verify_windows() {
-  local qcow="$1" py rc
+  local image="$1" qcow="$2" py ver ref manifest report rc
   [ -f "$qcow" ] || die "no image at: $qcow"
-  note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
+  ver="${image#windows-}"   # 2022 | 2025
+  ref="$(_ri_ref_for "$image")"
+  [ -n "$ref" ] || die "could not read ri_ref from images/$image/$image.pkr.hcl"
+  note "verifying $(basename "$qcow") against toolset-$ver.json @ ${ref:0:12} — booting + reporting over WinRM (~5-8 min)"
+  manifest="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/actions/runner-images/$ref/images/windows/toolsets/toolset-$ver.json" -o "$manifest" \
+    || die "could not fetch toolset-$ver.json at $ref"
   py="$(_winrm_venv)"
-  _winrm_boot "$qcow" 1   # read-only throwaway overlay — never mutates the built image
-  if timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
-      --check pwsh --check dotnet --check git --check node --check python \
-      --check java --check go --check ruby --check choco --check cmake \
-      --check bazel --check rustc; then rc=0; else rc=$?; fi
+  _winrm_boot "$qcow" 1   # read-only throwaway overlay — never mutates the image
+  report="$(timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
+    --script "$HERE/images/windows-2022/scripts/Report-Toolset.ps1" 2>&1)"
   kill "$RIF_QPID" 2>/dev/null || true
   rm -rf "$RIF_WD"
-  [ "$rc" = 0 ] && { note "VERIFY PASS"; return 0; }
-  die "VERIFY FAIL"
+  echo "--- toolset parity ---"
+  if echo "$report" | python3 "$HERE/lib/toolset_parity.py" --manifest "$manifest"; then rc=0; else rc=$?; fi
+  rm -f "$manifest"
+  [ "$rc" = 0 ] && { note "VERIFY PASS (toolset parity)"; return 0; }
+  [ "$rc" = 2 ] && die "VERIFY FAIL — reporter did not run / WinRM unreachable"
+  die "VERIFY FAIL — toolset parity misses (see PARITY MISSING/MISMATCH lines above)"
 }
 
 # --- #16 checkpoint-based fast iteration --------------------------------------
