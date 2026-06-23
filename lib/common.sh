@@ -285,7 +285,7 @@ verify_windows() {
   kill "$RIF_QPID" 2>/dev/null || true
   rm -rf "$RIF_WD"
   echo "--- toolset parity ---"
-  if echo "$report" | python3 "$HERE/lib/toolset_parity.py" --manifest "$manifest"; then rc=0; else rc=$?; fi
+  if echo "$report" | "$py" "$HERE/lib/toolset_parity.py" --manifest "$manifest"; then rc=0; else rc=$?; fi
   rm -f "$manifest"
   [ "$rc" = 0 ] && { note "VERIFY PASS (toolset parity)"; return 0; }
   [ "$rc" = 2 ] && die "VERIFY FAIL — reporter did not run / WinRM unreachable"
