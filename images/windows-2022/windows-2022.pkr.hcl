@@ -46,9 +46,14 @@ source "qemu" "windows2022" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing ---
-  cpus      = 4
-  memory    = 8192
+  // --- sizing --- (dedicated host: 28 of 32 threads as a SANE topology, 48 of 62 GiB).
+  // A bare `cpus = 28` emits `-smp 28` = 28 single-core SOCKETS, which Server 2022 mishandles
+  // (wedges the per-processor shutdown -> reboot never completes). 2 sockets x 14 cores fixes it.
+  cpus      = 28
+  sockets   = 2
+  cores     = 14
+  threads   = 1
+  memory    = 49152
   disk_size = "204800"
   format    = "qcow2"
   // IDE system disk + e1000 NIC: both are Windows inbox drivers, so Setup sees the
@@ -132,7 +137,7 @@ build {
       "if (Test-Path \"$src\\assets\") { Copy-Item \"$src\\assets\" C:\\image\\assets -Recurse -Force }",
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2022.json C:\\image\\toolset.json -Force",
-      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '14.19.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -ne 'SSIS.MicrosoftDataToolsIntegrationServices' }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 14.19.1 (toolset ships bare major 14 -> the installer scrapes git.postgresql.org for the latest minor, which rate-limits; the explicit triple takes the deterministic get.enterprisedb.com direct-download path) + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions)'",
+      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '14.19.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -notin @('SSIS.MicrosoftDataToolsIntegrationServices','WixToolset.WixToolsetVisualStudio2022Extension') }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 14.19.1 (toolset ships bare major 14 -> the installer scrapes git.postgresql.org for the latest minor, which rate-limits; the explicit triple takes the deterministic get.enterprisedb.com direct-download path) + dropped the SSIS vsix (its installer 1603s and, being first in the list, blocks the other 4 VS extensions) + dropped the Wix vsix (Votive2022.vsix = WiX v3 Votive VS extension; VSIXInstaller 0x80131509 / COR_E_INVALIDOPERATION x20 retries against VS 2022 17.14 - WiX v3 Votive is not installable into the 17.14 product; WiX v4/v5 ship no VS extension. Use the standalone wix dotnet tool via Install-Wix.ps1 instead)'",
       "(Get-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1' -Raw) -replace 'L=Wilmington, S=Delaware', 'S=Massachusetts' | Set-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1'; Write-Host 'patched Install-PostgreSQL expected cert subject (EnterpriseDB renewed Delaware -> Massachusetts; the installer is signed with the new cert)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
@@ -201,7 +206,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 1/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -211,7 +216,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 2/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -221,7 +226,7 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 3/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
     ]
@@ -231,9 +236,25 @@ build {
     environment_vars = local.ri_env
     valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
     inline = [
-      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; if ((Test-Path $vsw) -and (& $vsw -latest -property installationPath)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (already complete)'; exit 0 }",
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp = if (Test-Path $vsw) { & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath } else { $null }; if ($vp -and (Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue)) { Write-Host '@@@SKIP Install-VisualStudio.ps1 (v143 14.4x link.exe present)'; exit 0 }",
       "Write-Host '@@@RUN Install-VisualStudio.ps1 (resume pass 4/4)'",
       "& 'C:\\image\\scripts\\build\\Install-VisualStudio.ps1'",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // group 3a-fix — explicitly complete the C++ (NativeDesktop) workload. The 4-pass loop now gates
+  // on link.exe (not just instance registration), but as a hard guarantee against Server 2022's
+  // mid-install reboots leaving VC.Tools unfinished, run setup.exe modify --add NativeDesktop to a
+  // real terminal exit so the MSVC linker is on disk before Rust/VSExtensions.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    valid_exit_codes = [0, 1, 1602, 1603, 1641, 3010, 5007, 16001]
+    inline = [
+      "$vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $inst='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\setup.exe'",
+      "Write-Host '@@@RUN VS-NativeDesktop-complete'; $q=[char]34; $a=\"modify --installPath $q$vp$q --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --includeRecommended --quiet --norestart --nocache\"; $p=Start-Process $inst -Wait -PassThru -ArgumentList $a; Write-Host \"VS modify exit $($p.ExitCode)\"",
+      "$lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { Write-Host \"@@@OK VS-NativeDesktop v143 ($($lk.FullName))\" } else { Write-Host '@@@FAIL VS-NativeDesktop : v143 14.4x link.exe still missing (only v142 present)' }",
+      "exit 0",
     ]
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
@@ -314,7 +335,7 @@ build {
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $vsw='C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'; $vp=(& $vsw -latest -property installationPath); $lk=Get-ChildItem \"$vp\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended MSVC link dir so rustc's cargo-build link step uses link.exe not the GNU coreutil: $($lk.DirectoryName)\" } else { Write-Host 'WARN: MSVC link.exe not found via vswhere' }; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
+      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $lk=Get-ChildItem \"C:\\Program Files\\Microsoft Visual Studio\\2022\\*\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended v143 MSVC link dir (from disk, not vswhere): $($lk.DirectoryName)\" } else { Write-Host 'WARN: v143 14.4x link.exe not found on disk' }; $env:CARGO_BUILD_JOBS='1'; $env:RUSTFLAGS='-C codegen-units=1'; & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
       "exit 0",
     ]
   }
