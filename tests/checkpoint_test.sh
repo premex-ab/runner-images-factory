@@ -33,13 +33,14 @@ chk "fresh work after commit" "[ -f '$d/work.qcow2' ]"
 chk "new work backs onto 01"  "qemu-img info '$d/work.qcow2' | grep -q 'backing file:.*01-after-vs.qcow2'"
 chk "latest is 01"            "[ '$(basename "$(_cp_latest "$d")")' = '01-after-vs.qcow2' ]"
 
-echo "== rollback discards work, recreates from latest =="
-touch "$d/work.qcow2.marker"   # prove the old work is gone by checking inode change
-old_inode="$(stat -c %i "$d/work.qcow2")"
+echo "== rollback discards dirty work, recreates fresh from latest =="
+# Dirty the work overlay by repointing its backing (unsafe rebase = pointer-only edit),
+# so a no-op rollback would be detectable: only a real recreate resets it to the latest
+# checkpoint. (Avoids inode-equality checks, which are unreliable — ext4 reuses inodes.)
+qemu-img rebase -u -b "$d/00-base.qcow2" -F qcow2 "$d/work.qcow2"
+chk "work dirtied (now backs onto 00)" "qemu-img info '$d/work.qcow2' | grep -q 'backing file:.*00-base.qcow2'"
 checkpoint_rollback windows-2022 >/dev/null
-new_inode="$(stat -c %i "$d/work.qcow2")"
-chk "work recreated (new file)" "[ '$old_inode' != '$new_inode' ]"
-chk "rolled-back work backs onto 01" "qemu-img info '$d/work.qcow2' | grep -q 'backing file:.*01-after-vs.qcow2'"
+chk "rolled-back work recreated from latest (backs onto 01)" "qemu-img info '$d/work.qcow2' | grep -q 'backing file:.*01-after-vs.qcow2'"
 
 echo "== second commit advances numbering =="
 checkpoint_commit windows-2022 "after rust" >/dev/null
