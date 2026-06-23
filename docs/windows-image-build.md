@@ -58,7 +58,7 @@ be kept:
   `foreach` that *hid* the Votive + Rust failures (and its staging only drops the SSIS vsix, not
   the Wix one). Port the windows-2022 fixes and rebuild + verify.
 
-## Fast iteration (#16) — checkpoint loop
+## Fast iteration (#16): checkpoint loop
 
 Full rebuilds are ~3–4 h (VS dominates), so a per-tool fix shouldn't need one. The
 `./build.sh checkpoint` helper boots a built qcow2 over WinRM (the proven

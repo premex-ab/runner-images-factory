@@ -50,7 +50,7 @@ For **iterating** a fix (not just inspecting), use the **checkpoint loop**:
 `./build.sh checkpoint <image> <init|run|commit|rollback|list>` boots the writable image
 over the same WinRM recipe and snapshots each step as a qcow2 overlay chain — install a
 tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See the
-[fast-iteration playbook](docs/windows-image-build.md#fast-iteration-16--checkpoint-loop).
+[fast-iteration playbook](docs/windows-image-build.md#fast-iteration-16-checkpoint-loop).
 
 ## Conventions
 
