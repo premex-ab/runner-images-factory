@@ -73,15 +73,33 @@ def wait_up(port, tries=70, delay=12):
     return False
 
 
+# pywinrm sends each run_ps as `powershell -EncodedCommand <base64(utf-16le)>`; that arg plus the
+# command name must fit Windows' ~8191-char command-line limit. base64-of-utf16 inflates PS source
+# ~2.67x, so each upload chunk (wrapped in an Add-Content command) must stay well under the limit.
+# 2000-char chunks keep the encoded command ~5.5k; 3000 overflowed it, silently dropping chunks and
+# truncating the upload.
+B64_CHUNK = 2000
+
+
+def encoded_cmd_len(ps):
+    """Length of the `powershell -EncodedCommand ...` line pywinrm builds for a PS command —
+    used to keep upload chunks under the Windows command-line limit."""
+    return len("powershell.exe -EncodedCommand ") + len(base64.b64encode(ps.encode("utf-16-le")))
+
+
 def upload(port, local_path, remote_path):
     """Push a local file to the guest via chunked base64 (avoids WinRM command-length
-    limits and keeps the bytes exact)."""
-    b64 = base64.b64encode(open(local_path, "rb").read()).decode()
+    limits and keeps the bytes exact). Verifies the written byte count to catch truncation."""
+    raw = open(local_path, "rb").read()
+    b64 = base64.b64encode(raw).decode()
     rp, bp = psq(remote_path), psq(remote_path + ".b64")
     _run_ps(port, "New-Item -ItemType Directory -Force -Path (Split-Path %s)|Out-Null; Set-Content -Path %s -Value '' -NoNewline" % (rp, bp))
-    for c in chunks(b64, 3000):
+    for c in chunks(b64, B64_CHUNK):
         _run_ps(port, "Add-Content -Path %s -Value '%s' -NoNewline" % (bp, c))
-    _run_ps(port, "[IO.File]::WriteAllBytes(%s,[Convert]::FromBase64String((Get-Content %s -Raw))); Remove-Item %s -Force" % (rp, bp, bp))
+    out = _run_ps(port, "$b=[Convert]::FromBase64String((Get-Content %s -Raw));[IO.File]::WriteAllBytes(%s,$b);Remove-Item %s -Force;$b.Length" % (bp, rp, bp))
+    if out is None or out.strip() != str(len(raw)):
+        raise RuntimeError("upload of %s failed integrity check (wrote %r, expected %d bytes)"
+                           % (remote_path, (out or "").strip(), len(raw)))
 
 
 def run_script(port, local_path, env_pairs):

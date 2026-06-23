@@ -146,6 +146,15 @@ build {
     ]
   }
 
+  // #14: overwrite the staged upstream Install-AndroidSDK.ps1 with our android.exe-based version.
+  // Upstream installs via sdkmanager.bat (a JVM whose Parallel GC fails to allocate its mark
+  // bitmaps at startup on a high-vCPU build VM); our override uses Google's JVM-free `android` CLI
+  // to install the same toolset package set. Must run after staging (which creates C:\image\scripts).
+  provisioner "file" {
+    source      = "./scripts/Install-AndroidSDK.ps1"
+    destination = "C:\\image\\scripts\\build\\Install-AndroidSDK.ps1"
+  }
+
   // FULL runner-images toolset (parity with windows-2022) — the complete ordered install set
   // from build.windows-2022, in reboot-separated discovery groups that mirror the REAL template's
   // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
@@ -320,8 +329,7 @@ build {
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "$env:JAVA_TOOL_OPTIONS='-Xmx4g'  # sdkmanager's JVM defaults heap to 1/4 RAM (12G on a 48G VM) and fails to allocate it -> cap it; harmless for the other Java tools in this group",
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()  # Install-AndroidSDK.ps1 is our android.exe (JVM-free) override (#14); no JAVA_TOOL_OPTIONS GC workaround needed",
       "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Mercurial.ps1','Install-Zstd.ps1','Install-NSIS.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-AliyunCli.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; [Environment]::GetEnvironmentVariables('Machine').GetEnumerator()|ForEach-Object{[Environment]::SetEnvironmentVariable($_.Name,$_.Value,'Process')};$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User');$global:LASTEXITCODE=(Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\"$b\\$s\") -Wait -PassThru -NoNewWindow).ExitCode; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
