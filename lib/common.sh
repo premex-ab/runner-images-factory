@@ -230,7 +230,7 @@ SEED
 _winrm_venv() {
   local venv="$HOME/.cache/rif-winrm-venv"
   [ -x "$venv/bin/python3" ] || python3 -m venv "$venv" >/dev/null 2>&1
-  "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
+  "$venv/bin/pip" show pywinrm >/dev/null 2>&1 || "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
   echo "$venv/bin/python3"
 }
 
@@ -264,7 +264,7 @@ verify_windows() {
   note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
   py="$(_winrm_venv)"
   _winrm_boot "$qcow" 1   # read-only throwaway overlay — never mutates the built image
-  if "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
+  if timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
       --check pwsh --check dotnet --check git --check node --check python \
       --check java --check go --check ruby --check choco --check cmake \
       --check bazel --check rustc; then rc=0; else rc=$?; fi
@@ -363,7 +363,8 @@ checkpoint_run() {
   py="$(_winrm_venv)"
   note "booting work.qcow2 (writable) + running $(( ${#scripts[@]} / 2 )) script(s) over WinRM…"
   _winrm_boot "$d/work.qcow2" 0
-  if "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" "${env_args[@]}" "${scripts[@]}" --shutdown; then rc=0; else rc=$?; fi
+  # RIF_CP_TIMEOUT (default 4h) guards against a hung driver; raise it for very long installs.
+  if timeout "${RIF_CP_TIMEOUT:-14400}" "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" "${env_args[@]}" "${scripts[@]}" --shutdown; then rc=0; else rc=$?; fi
   # winrm_run issued a clean shutdown; wait up to ~5 min for qemu to exit, else kill.
   for i in $(seq 1 60); do kill -0 "$RIF_QPID" 2>/dev/null || break; sleep 5; done
   kill "$RIF_QPID" 2>/dev/null || true
