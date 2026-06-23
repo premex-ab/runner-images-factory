@@ -17,6 +17,14 @@ under Packer / QEMU / WinRM. Read alongside [../CLAUDE.md](../CLAUDE.md).
   hand-run a single `Install-*.ps1` against a finished image (this is how the per-tool issues
   below should be iterated — see #16).
 
+### Toolset parity (#17)
+
+`verify_windows` checks the built image against the **upstream toolset manifest**, not just a curated
+smoke set: `Report-Toolset.ps1` (guest) emits `@@@TOOL <category> <name> <version>` facts over WinRM,
+and `lib/toolset_parity.py` (host, pure + unit-tested) compares them to the pristine `toolset-<ver>.json`
+fetched at the cell's pinned `ri_ref`. It gates on a genuine missing/version-mismatched tool (skip-list
+exempted) and prints a `PARITY …` report. Add intentional deviations to `SKIP` in `toolset_parity.py`.
+
 ## Visual Studio on Server 2022 (SOLVED — preserve these)
 
 VS is the hardest part of the Windows build; these fixes live in the windows-2022 cell and must
