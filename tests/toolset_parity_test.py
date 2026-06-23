@@ -78,5 +78,23 @@ class TestCompare(unittest.TestCase):
         self.assertTrue(ok)  # missing but skip-listed
 
 
+class TestRun(unittest.TestCase):
+    MANIFEST = {"php": {"version": "8.5"}, "node": {"default": "22.*"}}
+
+    def test_empty_report_is_error_exit2(self):
+        _, code = tp.run(self.MANIFEST, "")
+        self.assertEqual(code, 2)
+
+    def test_all_missing_is_fail_not_error(self):
+        report = "@@@TOOL php php MISSING\n@@@TOOL node node MISSING\n"
+        _, code = tp.run(self.MANIFEST, report)
+        self.assertEqual(code, 1)
+
+    def test_all_present_is_pass(self):
+        report = "@@@TOOL php php 8.5.0\n@@@TOOL node node 22.11.0\n"
+        _, code = tp.run(self.MANIFEST, report)
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

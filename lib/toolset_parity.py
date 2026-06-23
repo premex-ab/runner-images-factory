@@ -82,21 +82,31 @@ def compare(expected, installed, skip=SKIP):
     return results, ok
 
 
+def run(manifest, report_text):
+    """Decide parity from a manifest dict + reporter text. Returns (results, exit_code):
+    exit 2 ONLY when no @@@TOOL lines were produced (reporter didn't run / WinRM unreachable);
+    a report whose tools are all MISSING is a real FAIL (exit 1), not a reporter error."""
+    seen = sum(1 for l in report_text.splitlines() if l.strip().startswith("@@@TOOL "))
+    if seen == 0:
+        return [], 2
+    results, ok = compare(parse_manifest(manifest), parse_report(report_text))
+    return results, (0 if ok else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
     a = ap.parse_args()
-    report = sys.stdin.read()
-    expected = parse_manifest(json.load(open(a.manifest)))
-    installed = parse_report(report)
-    if not installed:
+    with open(a.manifest) as f:
+        manifest = json.load(f)
+    results, code = run(manifest, sys.stdin.read())
+    if code == 2:
         print("PARITY_RESULT=ERROR (no @@@TOOL lines — reporter did not run / WinRM unreachable)")
         sys.exit(2)
-    results, ok = compare(expected, installed)
     for cat, name, spec, status, got in results:
         print("PARITY %-9s %-10s %-8s expected=%s got=%s" % (status, cat, name, spec, got or "-"))
-    print("PARITY_RESULT=" + ("PASS" if ok else "FAIL"))
-    sys.exit(0 if ok else 1)
+    print("PARITY_RESULT=" + ("PASS" if code == 0 else "FAIL"))
+    sys.exit(code)
 
 
 if __name__ == "__main__":
