@@ -141,6 +141,15 @@ build {
     ]
   }
 
+  // #14: overwrite the staged upstream Install-AndroidSDK.ps1 with our android.exe-based version
+  // (shared with the windows-2022 cell). Upstream's sdkmanager.bat JVM fails to allocate its
+  // Parallel GC bitmaps at startup on a high-vCPU build VM; the JVM-free `android` CLI avoids it.
+  // Must run after staging (which creates C:\image\scripts).
+  provisioner "file" {
+    source      = "../windows-2022/scripts/Install-AndroidSDK.ps1"
+    destination = "C:\\image\\scripts\\build\\Install-AndroidSDK.ps1"
+  }
+
   // FULL runner-images toolset (parity with windows-2025) — the complete ordered install set
   // from build.windows-2025, in reboot-separated discovery groups that mirror the REAL template's
   // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
