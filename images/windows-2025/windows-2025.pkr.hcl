@@ -62,12 +62,15 @@ source "qemu" "windows2025" {
   disk_interface = "ide"
   net_device     = "e1000"
 
-  // -cpu host is REQUIRED: Windows Server 2025 / 24H2 needs SSE4.2 + POPCNT, which
-  // the default qemu64 CPU lacks. We only add -cpu (NOT -drive): a qemuargs -drive
-  // overrides ALL of Packer's default -drive switches (the OVMF pflash, system
-  // disk, install ISO and Autounattend CD), which is what broke the first attempt.
+  // -cpu EPYC (a pre-CET named model), NOT -cpu host: Server 2025/24H2 needs SSE4.2 + POPCNT (the
+  // default qemu64 lacks them) and EPYC has those. But `-cpu host` on this AMD host leaks CET
+  // shadow-stack into the guest, which QEMU 8.2 mis-handles -> intermittent STATUS_STACK_BUFFER_OVERRUN
+  // / STACK_OVERFLOW in hardened binaries (rustc #13, VSIXInstaller #23). A CET-free model avoids it
+  // (QEMU 8.2 has no cet-ss/shstk property to mask). We only add -cpu (NOT -drive): a qemuargs -drive
+  // overrides ALL of Packer's default -drive switches (OVMF pflash, system disk, install ISO,
+  // Autounattend CD), which is what broke the first attempt.
   qemuargs = [
-    ["-cpu", "host"],
+    ["-cpu", "EPYC"],
   ]
 
   // The Autounattend.xml is delivered on a small CD that Windows Setup auto-reads.
