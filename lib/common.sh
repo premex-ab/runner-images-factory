@@ -281,3 +281,69 @@ PY
   echo "$out" | grep -qa 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; rm -rf "$wd"; return 0; }
   die "VERIFY FAIL (out kept: $wd)"
 }
+
+# --- #16 checkpoint-based fast iteration --------------------------------------
+# A qcow2 overlay chain for incremental Windows builds: install a tool, freeze a
+# checkpoint, install the next; on failure roll back to the last good checkpoint and
+# try a different tweak. Each step boots the WRITABLE work overlay over the proven
+# verify_windows WinRM recipe, so the step's changes persist into the layer. Every
+# checkpoint is itself a bootable qcow2; the --from base image is never mutated.
+
+_cp_dir() { echo "$HERE/out/$1/checkpoints"; }
+
+# Absolute path — qemu-img stores the backing path verbatim, so keep it absolute and
+# the chain resolves regardless of CWD. The path's directory must already exist.
+_abspath() { echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; }
+
+# Highest-numbered NN-*.qcow2 in the chain dir (the layer `work` currently backs onto).
+_cp_latest() { ls "$1"/[0-9][0-9]-*.qcow2 2>/dev/null | sort | tail -1; }
+
+checkpoint_init() {
+  local image="$1" from="$2" force="${3:-}" d
+  [ -f "$from" ] || die "no base image at: $from"
+  d="$(_cp_dir "$image")"
+  if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
+    [ "$force" = "--force" ] || die "checkpoint chain already exists at $d (use --force to wipe)"
+    rm -rf "$d"
+  fi
+  mkdir -p "$d"
+  from="$(_abspath "$from")"
+  qemu-img create -q -f qcow2 -b "$from" -F qcow2 "$d/00-base.qcow2"
+  qemu-img create -q -f qcow2 -b "$(_abspath "$d/00-base.qcow2")" -F qcow2 "$d/work.qcow2"
+  note "checkpoint chain initialized: $d/00-base.qcow2 (base: $from)"
+}
+
+checkpoint_commit() {
+  local image="$1" label="${2:-}" d n next
+  [ -n "$label" ] || die "usage: checkpoint $image commit <label>"
+  d="$(_cp_dir "$image")"
+  [ -f "$d/work.qcow2" ] || die "no work overlay — run 'checkpoint $image init --from <qcow2>' first"
+  n=$(ls "$d"/[0-9][0-9]-*.qcow2 2>/dev/null | wc -l)
+  next=$(printf '%02d' "$n")
+  label="$(echo "$label" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
+  mv "$d/work.qcow2" "$d/$next-$label.qcow2"
+  qemu-img create -q -f qcow2 -b "$(_abspath "$d/$next-$label.qcow2")" -F qcow2 "$d/work.qcow2"
+  note "committed checkpoint $next-$label.qcow2; fresh work overlay on top"
+}
+
+checkpoint_rollback() {
+  local image="$1" d latest
+  d="$(_cp_dir "$image")"
+  latest="$(_cp_latest "$d")"
+  [ -n "$latest" ] || die "no checkpoints — nothing to roll back to (run init first)"
+  rm -f "$d/work.qcow2"
+  qemu-img create -q -f qcow2 -b "$(_abspath "$latest")" -F qcow2 "$d/work.qcow2"
+  note "rolled back: fresh work overlay from $(basename "$latest")"
+}
+
+checkpoint_list() {
+  local image="$1" d f
+  d="$(_cp_dir "$image")"
+  [ -d "$d" ] || die "no checkpoint chain for $image (run init first)"
+  echo "checkpoint chain for $image:"
+  for f in "$d"/[0-9][0-9]-*.qcow2; do
+    [ -e "$f" ] || continue
+    echo "  $(basename "$f")"
+  done
+  [ -f "$d/work.qcow2" ] && echo "  work.qcow2 (writable, backs onto $(basename "$(_cp_latest "$d")"))"
+}
