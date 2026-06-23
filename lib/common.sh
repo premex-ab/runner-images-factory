@@ -241,8 +241,8 @@ _winrm_venv() {
 # Reap the booted guest + its throwaway dir. Idempotent. Wired to an EXIT/INT/TERM trap in
 # _winrm_boot so an interrupted verify/checkpoint run cannot orphan the qemu guest (#24).
 _winrm_cleanup() {
-  [ -n "${RIF_QPID:-}" ] && kill "$RIF_QPID" 2>/dev/null
-  [ -n "${RIF_WD:-}" ] && rm -rf "$RIF_WD"
+  [ -n "${RIF_QPID:-}" ] && kill "$RIF_QPID" 2>/dev/null || true
+  [ -n "${RIF_WD:-}" ] && rm -rf "$RIF_WD" || true
   RIF_QPID=""; RIF_WD=""
 }
 

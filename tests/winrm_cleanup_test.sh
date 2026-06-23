@@ -33,5 +33,13 @@ chk "orphan guest reaped on shell exit"   "! kill -0 $gp 2>/dev/null"
 chk "throwaway dir removed on shell exit"  "[ ! -d '$md/wd' ]"
 rm -rf "$md"
 
+echo "== _winrm_cleanup is set -e-safe when called twice with cleared globals (idempotent path) =="
+# Guards against the &&-chain tripping set -e on the already-cleaned second call.
+if bash -c 'set -euo pipefail; export HERE="'"$ROOT"'"; source "$HERE/lib/common.sh"; RIF_QPID=""; RIF_WD=""; _winrm_cleanup; _winrm_cleanup; echo REACHED' 2>/dev/null | grep -q REACHED; then
+  echo "  ok: double-call under set -euo pipefail does not abort"
+else
+  echo "  FAIL: _winrm_cleanup aborted the caller under set -e"; fails=$((fails+1))
+fi
+
 echo
 [ "$fails" -eq 0 ] && echo "ALL PASS" || { echo "$fails FAILED"; exit 1; }
