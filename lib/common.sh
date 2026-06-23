@@ -238,6 +238,14 @@ _winrm_venv() {
 # + e1000 + hostfwd). ro=1 -> read-only throwaway overlay (verify, never mutates the
 # image); ro=0 -> boot the disk WRITABLE (a checkpoint step persists into it). Sets
 # globals RIF_QPID / RIF_PORT / RIF_WD for the caller to drive then tear down.
+# Reap the booted guest + its throwaway dir. Idempotent. Wired to an EXIT/INT/TERM trap in
+# _winrm_boot so an interrupted verify/checkpoint run cannot orphan the qemu guest (#24).
+_winrm_cleanup() {
+  [ -n "${RIF_QPID:-}" ] && kill "$RIF_QPID" 2>/dev/null
+  [ -n "${RIF_WD:-}" ] && rm -rf "$RIF_WD"
+  RIF_QPID=""; RIF_WD=""
+}
+
 _winrm_boot() {
   local disk="$1" ro="$2" drive
   RIF_WD="$(mktemp -d)"; RIF_PORT=$((15000 + RANDOM % 40000))
@@ -256,6 +264,8 @@ _winrm_boot() {
     -netdev user,id=n0,hostfwd=tcp::$RIF_PORT-:5985 -device e1000,netdev=n0 \
     -display none >/dev/null 2>&1 &
   RIF_QPID=$!
+  # reap the guest + throwaway dir even if the run is interrupted (#24 — no orphaned qemu)
+  trap '_winrm_cleanup' EXIT INT TERM
 }
 
 # The pinned runner-images ref for a windows cell (grepped from its .pkr.hcl).
@@ -283,8 +293,7 @@ verify_windows() {
   # the reporter is one shared script (lives in the windows-2022 cell), used to verify both cells
   local reporter="$HERE/images/windows-2022/scripts/Report-Toolset.ps1"
   report="$(timeout 1800 "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" --script "$reporter" 2>&1)" || true
-  kill "$RIF_QPID" 2>/dev/null || true
-  rm -rf "$RIF_WD"
+  _winrm_cleanup; trap - EXIT INT TERM
   echo "--- toolset parity ---"
   if echo "$report" | "$py" "$HERE/lib/toolset_parity.py" --manifest "$manifest"; then rc=0; else rc=$?; fi
   rm -f "$manifest"
@@ -386,8 +395,7 @@ checkpoint_run() {
   if timeout "${RIF_CP_TIMEOUT:-14400}" "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" "${env_args[@]}" "${scripts[@]}" --shutdown; then rc=0; else rc=$?; fi
   # winrm_run issued a clean shutdown; wait up to ~5 min for qemu to exit, else kill.
   for i in $(seq 1 60); do kill -0 "$RIF_QPID" 2>/dev/null || break; sleep 5; done
-  kill "$RIF_QPID" 2>/dev/null || true
-  rm -rf "$RIF_WD"
+  _winrm_cleanup; trap - EXIT INT TERM
   if [ "$rc" = 0 ]; then
     note "run OK — 'checkpoint $image commit <label>' to freeze, or 'rollback' to discard"
   else
