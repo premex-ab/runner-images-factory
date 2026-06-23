@@ -226,60 +226,52 @@ SEED
   die "VERIFY FAIL or no result (serial log kept: $wd/serial.log)"
 }
 
-verify_windows() {
-  local qcow="$1" wd venv qpid out port
-  wd="$(mktemp -d)"
-  venv="$HOME/.cache/rif-winrm-venv"; port=$((15000 + RANDOM % 40000))
-  note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
-  # The image enables WinRM (Autounattend's FirstLogonCommands); boot it with a port-forward and
-  # query Get-Command for each tool over WinRM. More reliable than a cloudbase-init serial seed
-  # (the full image's cloudbase-init service may be Stopped). pywinrm lives in a throwaway venv
-  # (Ubuntu's system python is externally-managed / PEP 668).
+# pywinrm in a throwaway venv (Ubuntu's system python is externally-managed / PEP 668).
+_winrm_venv() {
+  local venv="$HOME/.cache/rif-winrm-venv"
   [ -x "$venv/bin/python3" ] || python3 -m venv "$venv" >/dev/null 2>&1
   "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
-  qemu-img create -q -f qcow2 -b "$(cd "$(dirname "$qcow")" && pwd)/$(basename "$qcow")" -F qcow2 "$wd/overlay.qcow2"
-  cp /usr/share/OVMF/OVMF_VARS_4M.fd "$wd/vars.fd"
-  timeout 1800 qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 8192 -smp 4 \
+  echo "$venv/bin/python3"
+}
+
+# Boot a qcow2 under the proven WinRM recipe (q35 + fresh OVMF NVRAM + IDE system disk
+# + e1000 + hostfwd). ro=1 -> read-only throwaway overlay (verify, never mutates the
+# image); ro=0 -> boot the disk WRITABLE (a checkpoint step persists into it). Sets
+# globals RIF_QPID / RIF_PORT / RIF_WD for the caller to drive then tear down.
+_winrm_boot() {
+  local disk="$1" ro="$2" drive
+  RIF_WD="$(mktemp -d)"; RIF_PORT=$((15000 + RANDOM % 40000))
+  cp /usr/share/OVMF/OVMF_VARS_4M.fd "$RIF_WD/vars.fd"
+  if [ "$ro" = "1" ]; then
+    qemu-img create -q -f qcow2 -b "$(_abspath "$disk")" -F qcow2 "$RIF_WD/overlay.qcow2"
+    drive="$RIF_WD/overlay.qcow2"
+  else
+    drive="$(_abspath "$disk")"
+  fi
+  qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m "${RIF_CP_MEM:-8192}" \
+    -smp "${RIF_CP_SMP:-cores=4,sockets=1,threads=1}" \
     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-    -drive if=pflash,format=raw,file="$wd/vars.fd" \
-    -drive file="$wd/overlay.qcow2",if=ide,format=qcow2 \
-    -netdev user,id=n0,hostfwd=tcp::$port-:5985 -device e1000,netdev=n0 \
+    -drive if=pflash,format=raw,file="$RIF_WD/vars.fd" \
+    -drive file="$drive",if=ide,format=qcow2 \
+    -netdev user,id=n0,hostfwd=tcp::$RIF_PORT-:5985 -device e1000,netdev=n0 \
     -display none >/dev/null 2>&1 &
-  qpid=$!
-  out="$(WINRM_PORT="$port" "$venv/bin/python3" - <<'PY'
-import winrm, time, os
-PORT=os.environ["WINRM_PORT"]
-# Fresh Session per command (a fresh WinRM shell), retries, and higher timeouts ride out the
-# flaky 400s that monster returns when its qemu is slow under heavy disk load.
-def mk():
-    return winrm.Session("http://127.0.0.1:%s/wsman"%PORT,auth=("Administrator","Bm-Packer-2025!"),transport="ntlm",read_timeout_sec=130,operation_timeout_sec=120)
-up=False
-for _ in range(70):
-    try:
-        if b"OK" in mk().run_ps('"OK"').std_out: up=True; break
-    except Exception: pass
-    time.sleep(12)
-if not up:
-    print("VERIFY_RESULT=FAIL (WinRM unreachable)"); raise SystemExit
-def ps(cmd):
-    for _ in range(8):
-        try: return mk().run_ps(cmd).std_out.decode()
-        except Exception: time.sleep(5)
-    return None
-fail=0
-for t in ["pwsh","dotnet","git","node","python","java","go","ruby","choco","cmake","bazel","rustc"]:
-    o=ps("(Get-Command %s -EA SilentlyContinue|Select-Object -First 1).Source"%t)
-    if o is None: print("CHECK %-8s ERROR winrm-transient"%t); fail=1; continue
-    src=o.strip()
-    if src: print("CHECK %-8s OK %s"%(t,src))
-    else:   print("CHECK %-8s FAIL"%t); fail=1
-print("VERIFY_RESULT="+("PASS" if not fail else "FAIL"))
-PY
-)"
-  kill "$qpid" 2>/dev/null
-  echo "--- verification output ---"; echo "$out" | grep -aE 'CHECK |VERIFY_RESULT' || echo "$out"
-  echo "$out" | grep -qa 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; rm -rf "$wd"; return 0; }
-  die "VERIFY FAIL (out kept: $wd)"
+  RIF_QPID=$!
+}
+
+verify_windows() {
+  local qcow="$1" py rc
+  [ -f "$qcow" ] || die "no image at: $qcow"
+  note "verifying $(basename "$qcow") — booting Windows + checking the toolchain over WinRM (~5-8 min)"
+  py="$(_winrm_venv)"
+  _winrm_boot "$qcow" 1   # read-only throwaway overlay — never mutates the built image
+  if "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" \
+      --check pwsh --check dotnet --check git --check node --check python \
+      --check java --check go --check ruby --check choco --check cmake \
+      --check bazel --check rustc; then rc=0; else rc=$?; fi
+  kill "$RIF_QPID" 2>/dev/null || true
+  rm -rf "$RIF_WD"
+  [ "$rc" = 0 ] && { note "VERIFY PASS"; return 0; }
+  die "VERIFY FAIL"
 }
 
 # --- #16 checkpoint-based fast iteration --------------------------------------
@@ -346,4 +338,40 @@ checkpoint_list() {
     echo "  $(basename "$f")"
   done
   [ -f "$d/work.qcow2" ] && echo "  work.qcow2 (writable, backs onto $(basename "$(_cp_latest "$d")"))"
+}
+
+# Boot the writable work overlay + run install scripts over WinRM with the image's
+# runner-images env, then clean-shutdown so the layer is consistent. On success the
+# changes are in work.qcow2 (commit to freeze, or rollback to discard).
+checkpoint_run() {
+  local image="$1"; shift
+  local d py rc i os
+  d="$(_cp_dir "$image")"
+  [ -f "$d/work.qcow2" ] || die "no work overlay — run 'checkpoint $image init --from <qcow2>' first"
+  local scripts=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --script) [ -f "$2" ] || die "no script at: $2"; scripts+=( --script "$(_abspath "$2")" ); shift 2 ;;
+      *) die "unknown flag: $1 (usage: checkpoint $image run --script <file.ps1> [--script ...])" ;;
+    esac
+  done
+  [ ${#scripts[@]} -gt 0 ] || die "usage: checkpoint $image run --script <file.ps1> [--script ...]"
+  case "$image" in windows-2025) os="win25" ;; *) os="win22" ;; esac
+  local env_args=( --env "IMAGE_FOLDER=C:\\image" --env "TEMP_DIR=C:\\temp" \
+    --env "AGENT_TOOLSDIRECTORY=C:\\hostedtoolcache\\windows" --env "IMAGE_OS=$os" \
+    --env "IMAGEDATA_FILE=C:\\imagedata.json" --env "IMAGE_VERSION=runner" )
+  py="$(_winrm_venv)"
+  note "booting work.qcow2 (writable) + running $(( ${#scripts[@]} / 2 )) script(s) over WinRM…"
+  _winrm_boot "$d/work.qcow2" 0
+  if "$py" "$HERE/lib/winrm_run.py" --port "$RIF_PORT" "${env_args[@]}" "${scripts[@]}" --shutdown; then rc=0; else rc=$?; fi
+  # winrm_run issued a clean shutdown; wait up to ~5 min for qemu to exit, else kill.
+  for i in $(seq 1 60); do kill -0 "$RIF_QPID" 2>/dev/null || break; sleep 5; done
+  kill "$RIF_QPID" 2>/dev/null || true
+  rm -rf "$RIF_WD"
+  if [ "$rc" = 0 ]; then
+    note "run OK — 'checkpoint $image commit <label>' to freeze, or 'rollback' to discard"
+  else
+    note "run FAILED (rc=$rc) — 'checkpoint $image rollback' to discard, fix the script, retry"
+  fi
+  return "$rc"
 }
