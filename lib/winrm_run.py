@@ -88,7 +88,16 @@ def run_script(port, local_path, env_pairs):
     name = os.path.basename(local_path)
     remote = "C:\\rif-step\\" + name
     upload(port, local_path, remote)
-    out = _run_ps(port, env_prologue(env_pairs) + "\n& " + psq(remote))
+    # Stamp an explicit @@@OK/@@@FAIL verdict, mirroring the .pkr.hcl discovery wrapper, so a
+    # bare upstream Install-*.ps1 (which emits no markers of its own) is judged on its
+    # terminating errors and non-zero exit code — not merely on whether it printed "@@@FAIL".
+    runner = (env_prologue(env_pairs)
+              + "\n$global:LASTEXITCODE=0"
+              + "\ntry { & " + psq(remote)
+              + "; if ($LASTEXITCODE -gt 0) { throw (" + psq("exit ") + "+$LASTEXITCODE) }; "
+              + "Write-Host " + psq("@@@OK " + name) + " } "
+              + "catch { Write-Host (" + psq("@@@FAIL " + name + " : ") + "+$_) }")
+    out = _run_ps(port, runner)
     if out is None:
         # connection lost mid-run — most likely the script triggered a reboot.
         if wait_up(port):

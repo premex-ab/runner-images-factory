@@ -230,7 +230,7 @@ SEED
 _winrm_venv() {
   local venv="$HOME/.cache/rif-winrm-venv"
   [ -x "$venv/bin/python3" ] || python3 -m venv "$venv" >/dev/null 2>&1
-  "$venv/bin/pip" show pywinrm >/dev/null 2>&1 || "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1
+  "$venv/bin/pip" show pywinrm >/dev/null 2>&1 || "$venv/bin/pip" install -q pywinrm >/dev/null 2>&1 || die "could not install pywinrm into $venv (offline? check network)"
   echo "$venv/bin/python3"
 }
 
