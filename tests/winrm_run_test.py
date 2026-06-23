@@ -30,6 +30,17 @@ class TestHelpers(unittest.TestCase):
         self.assertIn("GetEnvironmentVariables('Machine')", out)
         self.assertIn("$ErrorActionPreference='Continue'", out)
 
+    def test_upload_chunk_fits_winrm_cmdline_limit(self):
+        # pywinrm sends each run_ps as `powershell -EncodedCommand <base64(utf-16le)>`, which
+        # inflates the PS source ~2.67x. A full upload chunk wrapped in the Add-Content command
+        # must keep that encoded command under Windows' ~8191-char command-line limit, or the
+        # chunk silently fails to run and the upload is truncated. (A 3000-char chunk overflowed.)
+        chunk = "A" * winrm_run.B64_CHUNK
+        cmd = "Add-Content -Path %s -Value '%s' -NoNewline" % (
+            winrm_run.psq("C:\\rif-step\\some-reasonably-long-script-name.ps1.b64"), chunk)
+        self.assertLess(winrm_run.encoded_cmd_len(cmd), 8000,
+                        "per-chunk WinRM command must stay under the Windows command-line limit")
+
 
 if __name__ == "__main__":
     unittest.main()
