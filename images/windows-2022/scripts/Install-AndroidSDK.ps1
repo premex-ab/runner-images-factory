@@ -22,6 +22,12 @@
 $ErrorActionPreference = 'Continue'   # native CLI writes progress/notices to stderr; we gate on $LASTEXITCODE
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# android.exe bundles a JVM; on a high-vCPU / large-RAM build VM its default heap (~1/4 RAM) +
+# parallel-GC structures (sized to the CPU count) fail to allocate -> System.OutOfMemoryException /
+# "paging file too small". Cap the heap and force SerialGC (no per-CPU GC structures) for every JVM
+# android.exe spawns. (This is the same class of fix the upstream sdkmanager path needed.)
+$env:JAVA_TOOL_OPTIONS = '-XX:+UseSerialGC -Xmx2g'
+
 $sdkRoot = 'C:\Android\android-sdk'
 $cliDir  = 'C:\Android\cli'
 $cli     = "$cliDir\android.exe"
