@@ -87,19 +87,26 @@ def encoded_cmd_len(ps):
     return len("powershell.exe -EncodedCommand ") + len(base64.b64encode(ps.encode("utf-16-le")))
 
 
-def upload(port, local_path, remote_path):
+def upload(port, local_path, remote_path, tries=4):
     """Push a local file to the guest via chunked base64 (avoids WinRM command-length
-    limits and keeps the bytes exact). Verifies the written byte count to catch truncation."""
+    limits and keeps the bytes exact). Verifies the written byte count and re-does the whole
+    chunked write if it comes up short — a freshly-booted WinRM guest occasionally drops a
+    chunk and leaves the staging file empty (seen as 'wrote 0')."""
     raw = open(local_path, "rb").read()
     b64 = base64.b64encode(raw).decode()
     rp, bp = psq(remote_path), psq(remote_path + ".b64")
-    _run_ps(port, "New-Item -ItemType Directory -Force -Path (Split-Path %s)|Out-Null; Set-Content -Path %s -Value '' -NoNewline" % (rp, bp))
-    for c in chunks(b64, B64_CHUNK):
-        _run_ps(port, "Add-Content -Path %s -Value '%s' -NoNewline" % (bp, c))
-    out = _run_ps(port, "$b=[Convert]::FromBase64String((Get-Content %s -Raw));[IO.File]::WriteAllBytes(%s,$b);Remove-Item %s -Force;$b.Length" % (bp, rp, bp))
-    if out is None or out.strip() != str(len(raw)):
-        raise RuntimeError("upload of %s failed integrity check (wrote %r, expected %d bytes)"
-                           % (remote_path, (out or "").strip(), len(raw)))
+    last = None
+    for _ in range(tries):
+        _run_ps(port, "New-Item -ItemType Directory -Force -Path (Split-Path %s)|Out-Null; Set-Content -Path %s -Value '' -NoNewline" % (rp, bp))
+        for c in chunks(b64, B64_CHUNK):
+            _run_ps(port, "Add-Content -Path %s -Value '%s' -NoNewline" % (bp, c))
+        out = _run_ps(port, "$b=[Convert]::FromBase64String((Get-Content %s -Raw));[IO.File]::WriteAllBytes(%s,$b);Remove-Item %s -Force;$b.Length" % (bp, rp, bp))
+        if out is not None and out.strip() == str(len(raw)):
+            return
+        last = out
+        time.sleep(3)
+    raise RuntimeError("upload of %s failed integrity check after %d tries (wrote %r, expected %d bytes)"
+                       % (remote_path, tries, (last or "").strip(), len(raw)))
 
 
 def run_script(port, local_path, env_pairs):
