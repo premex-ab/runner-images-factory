@@ -66,12 +66,19 @@ tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See
 
 ## Status + remaining work
 
-Fast per-tool iteration uses the **checkpoint loop** (`./build.sh checkpoint`, #16). **windows-2025**
-is structurally aligned to the proven windows-2022 VS build (#15) — 4-pass `link.exe`-gated VS +
-NativeDesktop completion, dedicated VSExtensions provisioner, WiX-vsix drop, 28(2×14)/48G sizing — and
-builds VS + Rust + the full toolset. Open items, all environmental (not cell bugs):
-- A **`-cpu host` CET shadow-stack `STATUS_STACK_*` crash** is the real root cause of **#13** — it
-  crashes `rustc`'s cargo install on win22 *and* `VSIXInstaller` on win25 (**#23**). Fix: a CET-safe
-  CPU model / newer QEMU (our QEMU 8.2 can't disable CET), validated via the loop (`RIF_CP_CPU`).
-- `verify_windows`/`checkpoint_run` leak the qemu guest on interrupt — add a cleanup trap (**#24**).
-  (That orphan leak caused the only Android SDK build failure; Android installs fine with host headroom.)
+Fast per-tool iteration uses the **checkpoint loop** (`./build.sh checkpoint`, #16; CPU/accel
+overridable via `RIF_CP_CPU` / `RIF_CP_ACCEL`). **windows-2025** is structurally aligned to the proven
+windows-2022 VS build (#15) and builds VS + Rust + the full toolset. The cleanup trap (#24, merged)
+keeps verify/checkpoint runs from orphaning the qemu guest. Remaining gaps, all environmental:
+
+- **VSExtensions on win25 (#23):** `VSIXInstaller.exe` crashes `STATUS_STACK_OVERFLOW` (`0xC00000FD`)
+  many times per run, **only at high vCPU under KVM**. The faulting module is the **.NET Framework CLR
+  (`clr.dll`) at *random* offsets** — i.e. state/register corruption from the KVM↔guest CPU emulation,
+  **not** a bad extension. Ruled out via the loop: CET shadow-stack (disabling it had *no* effect — so
+  NOT the #13 mechanism), CPU model (`-cpu EPYC`), and workstation-GC. No in-repo fix found; `accel=tcg`
+  sidesteps KVM passthrough but is too slow to even boot. **Likely real fix = a newer host QEMU** (better
+  CPU/state handling) — parked; needs host `sudo`. See [docs/qemu-upgrade.md](docs/qemu-upgrade.md).
+- **Rust on win22 (#13):** rustc's `cargo install` crashes `STATUS_STACK_BUFFER_OVERRUN` (`0xC0000409`)
+  — a *different* status code from #23 (possibly genuine CET/GS), not retested under the above. Separate.
+- **Android SDK:** the `android` CLI bundles a JVM that OOMs on the big build guest (default heap ~¼ RAM
+  + per-CPU GC structures); fixed by capping it — `JAVA_TOOL_OPTIONS='-XX:+UseSerialGC -Xmx2g'`.
