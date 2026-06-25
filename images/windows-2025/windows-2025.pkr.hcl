@@ -163,10 +163,14 @@ build {
   // false-positives — Configure-BaseImage's benign exec-policy warning and az's stale
   // $LASTEXITCODE. Skips Windows Updates / Cosmos emulator / Post-Build-Validation (Pester).
 
-  // group 1 — base config, WSL2, Windows features, chocolatey (+ 7zip for 7z extraction)
+  // group 1 — a large fixed pagefile FIRST (qemu has no Azure-style D: scratch disk, so commit-heavy
+  // steps — VS finalize, android.exe spawn, VSIXInstaller — exhaust the 48G RAM and OOM /
+  // STATUS_STACK_OVERFLOW; #23 + Android). The windows-restart below activates it for every later group.
+  // Then base config, WSL2, Windows features, chocolatey (+ 7zip for 7z extraction).
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
+      "if((Get-PSDrive C).Free/1GB -gt 110){ $cs=Get-CimInstance Win32_ComputerSystem; if($cs.AutomaticManagedPagefile){Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile=$false}|Out-Null}; Set-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management' -Name PagingFiles -Value 'C:\\pagefile.sys 49152 49152'; Write-Host '@@@OK pagefile 49152 MB set (active after next restart)' } else { Write-Host '@@@WARN C: under 110GB free; skipped big pagefile' }",
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@(); $noisy=@('Configure-BaseImage.ps1','Install-AzureDevOpsCli.ps1')",
       "foreach ($s in @('Configure-WindowsDefender.ps1','Configure-PowerShell.ps1','Install-PowerShellModules.ps1','Install-WSL2.ps1','Install-WindowsFeatures.ps1','Install-Chocolatey.ps1','Configure-BaseImage.ps1','Configure-ImageDataFile.ps1','Configure-SystemEnvironment.ps1','Configure-DotnetSecureChannel.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0 -and $s -notin $noisy) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { if ($s -in $noisy) { Write-Host \"@@@OK $s (noisy ignored: $_)\" } else { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } } }",
       "choco install -y --no-progress 7zip.install 2>&1 | Out-Null; Write-Host '7zip via choco'",

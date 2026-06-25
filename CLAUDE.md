@@ -66,19 +66,25 @@ tool, freeze a checkpoint, roll back on failure. Driver: `lib/winrm_run.py`. See
 
 ## Status + remaining work
 
-Fast per-tool iteration uses the **checkpoint loop** (`./build.sh checkpoint`, #16; CPU/accel
-overridable via `RIF_CP_CPU` / `RIF_CP_ACCEL`). **windows-2025** is structurally aligned to the proven
-windows-2022 VS build (#15) and builds VS + Rust + the full toolset. The cleanup trap (#24, merged)
-keeps verify/checkpoint runs from orphaning the qemu guest. Remaining gaps, all environmental:
+Fast per-tool iteration uses the **checkpoint loop** (`./build.sh checkpoint`, #16; CPU/accel/mem
+overridable via `RIF_CP_CPU` / `RIF_CP_ACCEL` / `RIF_CP_MEM` / `RIF_CP_SMP`). **windows-2025/2022** build
+VS + the full toolset (60 tools `@@@OK` on the latest win25 build). The cleanup trap (#24) and chunked-upload
+retry (#28) keep the loop robust.
 
-- **VSExtensions on win25 (#23):** `VSIXInstaller.exe` crashes `STATUS_STACK_OVERFLOW` (`0xC00000FD`)
-  many times per run, **only at high vCPU under KVM**. The faulting module is the **.NET Framework CLR
-  (`clr.dll`) at *random* offsets** — i.e. state/register corruption from the KVM↔guest CPU emulation,
-  **not** a bad extension. Ruled out via the loop: CET shadow-stack (disabling it had *no* effect — so
-  NOT the #13 mechanism), CPU model (`-cpu EPYC`), and workstation-GC. No in-repo fix found; `accel=tcg`
-  sidesteps KVM passthrough but is too slow to even boot. **Likely real fix = a newer host QEMU** (better
-  CPU/state handling) — parked; needs host `sudo`. See [docs/qemu-upgrade.md](docs/qemu-upgrade.md).
-- **Rust on win22 (#13):** rustc's `cargo install` crashes `STATUS_STACK_BUFFER_OVERRUN` (`0xC0000409`)
-  — a *different* status code from #23 (possibly genuine CET/GS), not retested under the above. Separate.
-- **Android SDK:** the `android` CLI bundles a JVM that OOMs on the big build guest (default heap ~¼ RAM
-  + per-CPU GC structures); fixed by capping it — `JAVA_TOOL_OPTIONS='-XX:+UseSerialGC -Xmx2g'`.
+**⚠️ Reboot the build host before long builds.** The intermittent `STATUS_STACK_BUFFER_OVERRUN` (`0xC0000409`)
+crashes in **rustc's `cargo install` (#13)** were **host-state degradation over weeks of uptime** — not a
+cell/QEMU/CET bug. Identical repro: 4–6 crashes/run on a weeks-up host → **0 after a reboot** (confirmed 2/2,
+via the loop). Don't let the build host accumulate weeks of uptime (likely THP/kernel/KVM memory fragmentation).
+
+**Memory/pagefile (group-1 fix in both cells).** qemu has no Azure-style `D:` scratch disk, so commit-heavy
+steps exhaust the 48 GB guest RAM → OOM / failed stack-commit. Symptoms: `android.exe` can't spawn
+(`System.OutOfMemoryException`) and VS finalize OOMs. Both cells now set a **48 GB fixed pagefile in group 1**
+(active after the first `windows-restart`). Loop-confirmed: it **fixes the Android OOM** and **cuts #23's
+VSIXInstaller crashes ~33→11**.
+
+Remaining gap:
+- **VSExtensions on win25 (#23):** `VSIXInstaller.exe` `STATUS_STACK_OVERFLOW` (`0xC00000FD`, .NET Framework
+  CLR). **Memory-aggravated** (the pagefile cut it ~3×) but a **residual remains** even with 96 GB commit —
+  not the sole cause. Survives the host reboot (unlike #13) and every QEMU/CPU/CET/Hyper-V/GC tweak. The 2
+  affected vsix (InstallerProjects + AnalysisServicesModelingProjects) are a documented gap; confirm the
+  pagefile's effect in a clean full build before deciding whether to chase the residual.
