@@ -25,17 +25,17 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 ### ubuntu (68 scripts in build.ubuntu-24_04 order)
 - [x] curated subset (git, docker, node, python, .NET, gcc, clang, cmake, pwsh)
 - [x] **full set ✅ built + boot-verified (67/67 scripts, 66 G image)** — installs:
-  - [ ] languages: Java, Go (toolcache), Ruby, PHP, Rust, Swift, Haskell, Kotlin, Julia, PyPy, Python (multi-version)
-  - [ ] Android SDK
-  - [ ] cloud CLIs: Azure CLI, AWS, GCP, azcopy, bicep, az-devops
-  - [ ] browsers + selenium: Chrome, Firefox, Edge
-  - [ ] databases: MySQL, PostgreSQL
-  - [ ] servers: Apache, Nginx
-  - [ ] build/dev: Bazel, vcpkg, ninja, packer, gfortran, cmake, clang, gcc
-  - [ ] hosted-toolcache (`Install-Toolset.ps1` → /opt/hostedtoolcache: Python/Node/Go/Ruby/PyPy versions, for actions/setup-*)
-  - [ ] Homebrew (Linuxbrew)
-  - [ ] PowerShell + modules (incl. Az modules)
-  - [ ] CLIs: gh, git-lfs, yq, kubectl/helm, pulumi, codeql, miniconda, container-tools
+  - [x] languages: Java, Go (toolcache), Ruby, PHP, Rust, Swift, Haskell, Kotlin, Julia, PyPy, Python (multi-version)
+  - [x] Android SDK
+  - [x] cloud CLIs: Azure CLI, AWS, GCP, azcopy, bicep, az-devops
+  - [x] browsers + selenium: Chrome, Firefox, Edge
+  - [x] databases: MySQL, PostgreSQL
+  - [x] servers: Apache, Nginx
+  - [x] build/dev: Bazel, vcpkg, ninja, packer, gfortran, cmake, clang, gcc
+  - [x] hosted-toolcache (`Install-Toolset.ps1` → /opt/hostedtoolcache: Python/Node/Go/Ruby/PyPy versions, for actions/setup-*)
+  - [x] Homebrew (Linuxbrew)
+  - [x] PowerShell + modules (incl. Az modules)
+  - [x] CLIs: gh, git-lfs, yq, kubectl/helm, pulumi, codeql, miniconda, container-tools
 - Standalone fixes applied (all 67 now pass):
   - [x] apt assume-yes early (configure-apt-mock skipped) + script stdin from /dev/null
   - [x] `inline_shebang=/bin/bash` (Packer default `-e` aborted the discovery loop)
