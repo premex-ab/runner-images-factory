@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Continue'   # native CLI writes progress/notices to st
 # parallel-GC structures (sized to the CPU count) fail to allocate -> System.OutOfMemoryException /
 # "paging file too small". Cap the heap and force SerialGC (no per-CPU GC structures) for every JVM
 # android.exe spawns. (This is the same class of fix the upstream sdkmanager path needed.)
-$env:JAVA_TOOL_OPTIONS = '-XX:+UseSerialGC -Xmx2g'
+$env:JAVA_TOOL_OPTIONS = '-XX:+UseSerialGC -Xmx2g -XX:MaxMetaspaceSize=512m'   # bound native metaspace too (#32: the OOM was a native "Failed to commit metaspace", not heap)
 
 $sdkRoot = 'C:\Android\android-sdk'
 $cliDir  = 'C:\Android\cli'
@@ -120,7 +120,17 @@ if ($env:RIF_ANDROID_DRYRUN) { Write-Host 'RIF_ANDROID_DRYRUN set - resolution o
 if ($cmdlineTools) {
   try { Invoke-AndroidCli sdk install $cmdlineTools } catch { Write-Host "WARN: cmdline-tools install failed (non-fatal): $_" }
 }
-Invoke-AndroidCli sdk install @packages
+# Install one package per android.exe invocation instead of one giant `sdk install @packages` batch.
+# #32: a single batch spins up one long-lived JVM that unpacks every package (incl. 3 multi-GB NDKs)
+# in the same process -> its native/metaspace footprint balloons and the OS fails to commit it
+# ("Native memory allocation (mmap) failed ... Failed to commit metaspace") under full build memory
+# pressure. Per-package installs keep each JVM small and short-lived, so peak native memory stays low.
+$i = 0
+foreach ($pkg in $packages) {
+  $i++
+  Write-Host "[$i/$($packages.Count)] android sdk install $pkg"
+  Invoke-AndroidCli sdk install $pkg
+}
 
 # --- machine env vars (match the upstream script's outcome) ---
 [Environment]::SetEnvironmentVariable('ANDROID_HOME', $sdkRoot, 'Machine')
