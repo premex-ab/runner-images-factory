@@ -48,13 +48,15 @@ for ($i = 1; $i -le 5; $i++) {
   Start-Sleep 10
 }
 if (-not $ok) { throw 'android.exe download failed after 5 attempts' }
-& $cli --version 2>&1 | Out-Host   # first run unpacks the embedded install + prints ToS
+& $cli --version *> $null   # first run unpacks the embedded install + accepts ToS; discard output (piping android.exe's streaming download via Out-Host buffers in the WinRM shell -> System.OutOfMemoryException)
 
 # Run the CLI, feeding 'y' for any license prompt (install also writes the licenses dir itself),
 # and fail hard on a non-zero exit.
 function Invoke-AndroidCli {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Arguments)
-  (1..100 | ForEach-Object { 'y' }) | & $cli --sdk=$sdkRoot @Arguments 2>&1 | Out-Host
+  # Discard the CLI's streaming install/download output: piping GBs of progress through Out-Host
+  # buffers it in the WinRM shell -> System.OutOfMemoryException (Out-Null discards per-item, keeps $LASTEXITCODE).
+  (1..100 | ForEach-Object { 'y' }) | & $cli --sdk=$sdkRoot @Arguments 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "android $($Arguments -join ' ') failed with exit $LASTEXITCODE" }
 }
 
