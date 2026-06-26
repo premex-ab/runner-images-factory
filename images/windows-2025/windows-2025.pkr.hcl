@@ -137,7 +137,7 @@ build {
       "if (Test-Path \"$src\\assets\") { Copy-Item \"$src\\assets\" C:\\image\\assets -Recurse -Force }",
       "Move-Item C:\\image\\scripts\\helpers 'C:\\Program Files\\WindowsPowerShell\\Modules\\ImageHelpers' -Force",
       "Move-Item C:\\image\\toolsets\\toolset-2025.json C:\\image\\toolset.json -Force",
-      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -notin @('SSIS.MicrosoftDataToolsIntegrationServices','WixToolset.WixToolsetVisualStudio2022Extension') }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 + dropped the SSIS vsix (installer 1603s, blocks the other VS extensions) + dropped the Wix vsix (WiX v3 Votive is not installable into VS 17.x -> VSIXInstaller 0x80131509; use the standalone wix dotnet tool via Install-Wix.ps1 instead)'",
+      "$ts = Get-Content C:\\image\\toolset.json -Raw | ConvertFrom-Json; $ts.postgresql.version = '17.6.1'; $ts.visualStudio.vsix = @($ts.visualStudio.vsix | Where-Object { $_ -notin @('SSIS.MicrosoftDataToolsIntegrationServices','WixToolset.WixToolsetVisualStudio2022Extension','VisualStudioClient.MicrosoftVisualStudio2022InstallerProjects','ProBITools.MicrosoftAnalysisServicesModelingProjects2022') }); ($ts | ConvertTo-Json -Depth 100) | Set-Content C:\\image\\toolset.json; Write-Host 'pinned postgresql 17.6.1 + dropped the SSIS vsix (installer 1603s, blocks the other VS extensions) + dropped the Wix vsix (WiX v3 Votive is not installable into VS 17.x -> VSIXInstaller 0x80131509; use the standalone wix dotnet tool via Install-Wix.ps1 instead) + dropped InstallerProjects & AnalysisServicesModelingProjects vsix (VSIXInstaller STATUS_STACK_OVERFLOW 0xC00000FD under memory pressure; skipped pending #23)'",
       "(Get-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1' -Raw) -replace 'L=Wilmington, S=Delaware', 'S=Massachusetts' | Set-Content 'C:\\image\\scripts\\build\\Install-PostgreSQL.ps1'; Write-Host 'patched Install-PostgreSQL expected cert subject (EnterpriseDB renewed Delaware -> Massachusetts; the installer is signed with the new cert)'",
       "New-Item -ItemType Directory -Force -Path 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers' | Out-Null",
       "Set-Content 'C:\\Program Files\\WindowsPowerShell\\Modules\\TestsHelpers\\TestsHelpers.psm1' 'function Invoke-PesterTests {}'",
@@ -150,6 +150,10 @@ build {
   // (shared with the windows-2022 cell). Upstream's sdkmanager.bat JVM fails to allocate its
   // Parallel GC bitmaps at startup on a high-vCPU build VM; the JVM-free `android` CLI avoids it.
   // Must run after staging (which creates C:\image\scripts).
+  // NOTE: the override is staged but NOT invoked in the toolset loop below — Android SDK is
+  // skipped pending #32 (multi-package `sdk install` batch hits a JVM native OOM / "Failed to
+  // commit metaspace" under full build memory pressure). Re-add 'Install-AndroidSDK.ps1' to the
+  // group loop once #32 has a working fix.
   provisioner "file" {
     source      = "../windows-2022/scripts/Install-AndroidSDK.ps1"
     destination = "C:\\image\\scripts\\build\\Install-AndroidSDK.ps1"
@@ -312,7 +316,7 @@ build {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
-      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-AndroidSDK.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Zstd.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Zstd.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]

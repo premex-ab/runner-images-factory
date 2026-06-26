@@ -47,10 +47,11 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 - **`images/<name>/`** — our thin Packer overlay per image. The Windows cell stages
   `runner-images` at a **pinned ref** (`images/windows-2025/windows-2025.pkr.hcl` →
   `ri_ref`), puts their `ImageHelpers` module on `PSModulePath`, ships their
-  `toolset.json`, stubs out their Pester validation, and runs a **curated subset** of
-  their `Install-*.ps1` — so the toolchain matches `windows-latest`, tracked by the tag.
+  `toolset.json`, stubs out their Pester validation, and runs the **full** set of
+  their `Install-*.ps1` — so the toolchain matches `windows-latest`, tracked by the tag
+  (see the [parity table](#parity) for the handful of tools deliberately excluded).
   The Ubuntu cell does the same over SSH: it stages their `helpers/` + `build/` scripts +
-  `toolset.json` into `/imagegeneration` and runs a curated subset of `install-*.sh`.
+  `toolset.json` into `/imagegeneration` and runs the full set of `install-*.sh`.
   We never edit their tree (consume, don't fork) → no merge conflicts.
 - **`build.sh`** — the single entry point: prereq bootstrap, host checks, Packer + the
   boot-prompt helper, output + checksum.
@@ -63,19 +64,41 @@ runners (object store, a file server, a local registry, your orchestrator's imag
   runner, and verifies over SSH. Not redistributable (Apple EULA), which fits the model.
 - **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-verify.
 
-## Status
+## Parity
 
-| Image | State | Toolchain |
-|---|---|---|
-| `windows-2025` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (from runner-images, pinned) |
-| `ubuntu-2404` | ✅ working + **verified** | git, docker, node 22, python, .NET, gcc + clang 18, cmake, pwsh (from runner-images, pinned) |
-| `ubuntu-2204` | ✅ working + **verified** | same toolchain at 22.04 versions (python 3.10, gcc 11, clang 14) |
-| `windows-2022` | ✅ working + **verified** | pwsh, choco, 7zip, git, node, mingw, webview2 (win22 toolset, pinned) |
-| `macos-tahoe` | ✅ working + **verified** | clang/swift (Xcode), brew, node, python, ruby, git + runner (cirruslabs base, via Tart) |
+The goal is the **full** runner-images toolset per image — not a curated subset — built and
+**boot-verified**. Verification boots the finished image and runs the toolchain for real;
+on Windows/Ubuntu it compares the installed tools against GitHub's own `toolset-<ver>.json`
+manifest at the pinned ref. See [PARITY.md](PARITY.md) for the per-script checklist.
 
-**Parity: all five OS families GitHub ships build _and_ boot-verify** — ubuntu 22.04/24.04,
-windows 2022/2025, and macOS. macOS builds on an Apple Silicon Mac (Tart); the rest on a Linux
-KVM host.
+| Image | Toolset | Boot-verified | Not in parity (excluded on purpose) |
+|---|---|---|---|
+| `ubuntu-2204` | full set (77/77 scripts) | ✅ toolchain | — none |
+| `ubuntu-2404` | full set (67/67 scripts) | ✅ manifest parity | — none |
+| `windows-2025` | full set + Visual Studio 2022 | ✅ manifest parity | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
+| `windows-2022` | full set + Visual Studio 2022 | ✅ cell <sup>[3]</sup> | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
+| `macos-13/14/15/26` | cirruslabs base + GitHub runner | ✅ over SSH | n/a <sup>[4]</sup> |
+
+Everything else GitHub ships **is** in parity: the languages (Python/Go/Node/Ruby/PHP/Rust/Java
+8-25/Kotlin/…), the toolcache, .NET 8/9/10 SDKs, the databases (MySQL/PostgreSQL/MongoDB), the
+cloud CLIs (Azure/AWS/GCP), browsers + Selenium, and the build tooling — including Visual Studio
+2022 with the rest of its workloads and extensions.
+
+**Deliberately excluded until fixed** (the build skips these rather than failing on them — both are
+[memory-pressure](docs/windows-image-build.md) build failures on a tight host, not missing-tool bugs):
+
+1. **Android SDK** — skipped pending [#32](https://github.com/premex-ab/runner-images-factory/issues/32):
+   the multi-package `sdk install` batch hits a JVM native OOM ("Failed to commit metaspace") under
+   full build load. Re-enabled by re-adding one line to the toolset loop once #32 has a working fix.
+2. **2 Visual Studio extensions** — *Installer Projects* and *Analysis Services Modeling Projects*,
+   dropped pending [#23](https://github.com/premex-ab/runner-images-factory/issues/23):
+   `VSIXInstaller.exe` `STATUS_STACK_OVERFLOW` (`0xC00000FD`) under memory pressure. The other VS
+   extensions (e.g. SQL Server Reporting/Report Projects) install normally.
+3. `windows-2022` shares the exact same cell structure as the verified `windows-2025` and builds the
+   same full toolset; the freshly boot-verified Windows artifact in the current batch is `windows-2025`.
+4. macOS is built from the maintained **cirruslabs** base image via Tart (the "consume, don't fork"
+   analog for Apple hardware), not the runner-images install scripts — so it tracks that base, not the
+   `toolset.json` manifest.
 
 ## Roadmap
 
@@ -83,5 +106,7 @@ KVM host.
 - [x] Real verification harness (`build.sh verify`) — boots the image + runs the toolchain (ubuntu + windows verified)
 - [ ] Vendor `runner-images` as a submodule + a daily **bump → build → test → promote** pipeline (AI agent for triage only)
 - [ ] Self-hosted build runners (Linux for win/ubuntu, Mac for macOS)
-- [ ] Expand the curated toolchain toward `windows-latest` (Python/Go/.NET/…), with real Pester validation
+- [x] Full `windows-latest` toolset (VS 2022 + languages/SDKs/toolcache), manifest-parity verified
+- [ ] Close the two excluded Windows tools — Android SDK ([#32](https://github.com/premex-ab/runner-images-factory/issues/32)) + 2 VS extensions ([#23](https://github.com/premex-ab/runner-images-factory/issues/23)) — both host-memory-pressure build failures
+- [ ] Real Pester validation (replace the stubbed `Invoke-PesterTests`)
 - [ ] Optional cloud finalize (AMI / GCE image / Azure VHD) — deferred until needed
