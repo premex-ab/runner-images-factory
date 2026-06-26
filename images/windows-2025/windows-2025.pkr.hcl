@@ -46,12 +46,16 @@ source "qemu" "windows2025" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing --- (dedicated host: 28 of 32 threads as a SANE topology, 48 of 62 GiB).
-  // A bare `cpus = 28` emits `-smp 28` = 28 single-core SOCKETS, which Server mishandles
-  // (wedges the per-processor shutdown -> reboot never completes). 2 sockets x 14 cores fixes it.
-  cpus      = 28
+  // --- sizing --- (8 vCPU / 48 GiB on a 62 GiB dedicated host).
+  // #32/#23: at 28 vCPU the parallel install peaks EXHAUST guest memory in group 3-4 — VSExtensions
+  // OOM-loops through all ~20 retries and android.exe then fails to even spawn ("Program 'android.exe'
+  // failed to run: OutOfMemoryException"). GitHub builds runner-images on ~8-vCPU Standard_D VMs;
+  // cutting parallelism (NOT RAM — the guest needs the 48G+pagefile commit headroom) is the lever that
+  // drops peak concurrent demand. A bare `cpus = N` emits `-smp N` = N single-core SOCKETS, which
+  // Server mishandles (wedges per-processor shutdown -> reboot never completes); 2 sockets x 4 cores fixes it.
+  cpus      = 8
   sockets   = 2
-  cores     = 14
+  cores     = 4
   threads   = 1
   memory    = 49152
   disk_size = "204800"
