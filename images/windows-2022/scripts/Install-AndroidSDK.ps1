@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Continue'   # native CLI writes progress/notices to st
 # parallel-GC structures (sized to the CPU count) fail to allocate -> System.OutOfMemoryException /
 # "paging file too small". Cap the heap and force SerialGC (no per-CPU GC structures) for every JVM
 # android.exe spawns. (This is the same class of fix the upstream sdkmanager path needed.)
-$env:JAVA_TOOL_OPTIONS = '-XX:+UseSerialGC -Xmx2g'
+$env:JAVA_TOOL_OPTIONS = '-XX:+UseSerialGC -Xmx2g -XX:MaxMetaspaceSize=512m'   # bound native metaspace too (#32: the OOM was a native "Failed to commit metaspace", not heap)
 
 $sdkRoot = 'C:\Android\android-sdk'
 $cliDir  = 'C:\Android\cli'
@@ -50,14 +50,22 @@ for ($i = 1; $i -le 5; $i++) {
 if (-not $ok) { throw 'android.exe download failed after 5 attempts' }
 & $cli --version *> $null   # first run unpacks the embedded install + accepts ToS; discard output (piping android.exe's streaming download via Out-Host buffers in the WinRM shell -> System.OutOfMemoryException)
 
-# Run the CLI, feeding 'y' for any license prompt (install also writes the licenses dir itself),
-# and fail hard on a non-zero exit.
+# Run the CLI, feeding 'y' for any license prompt (install also writes the licenses dir itself).
+# Retry up to 3x — a single package's download can flake transiently (exit 1) and must not fail the
+# whole step. Capture ALL streams to a FILE (not Out-Host/Out-Null): piping android.exe's streaming
+# download through the WinRM shell buffers it -> System.OutOfMemoryException, but redirecting to disk
+# streams without buffering AND keeps the output diagnosable (we print the tail on failure).
 function Invoke-AndroidCli {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]] $Arguments)
-  # Discard the CLI's streaming install/download output: piping GBs of progress through Out-Host
-  # buffers it in the WinRM shell -> System.OutOfMemoryException (Out-Null discards per-item, keeps $LASTEXITCODE).
-  (1..100 | ForEach-Object { 'y' }) | & $cli --sdk=$sdkRoot @Arguments 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "android $($Arguments -join ' ') failed with exit $LASTEXITCODE" }
+  $log = Join-Path $env:TEMP ("android-" + (($Arguments -join '_') -replace '[^\w.-]', '_') + ".log")
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    (1..100 | ForEach-Object { 'y' }) | & $cli --sdk=$sdkRoot @Arguments *> $log
+    if ($LASTEXITCODE -eq 0) { return }
+    Write-Host "android $($Arguments -join ' ') attempt $attempt/3 failed (exit $LASTEXITCODE); log tail:"
+    Get-Content $log -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  | $_" }
+    Start-Sleep 10
+  }
+  throw "android $($Arguments -join ' ') failed after 3 attempts (exit $LASTEXITCODE)"
 }
 
 # --- resolve concrete package ids from the live catalog (first column of `sdk list --all`) ---
@@ -120,7 +128,17 @@ if ($env:RIF_ANDROID_DRYRUN) { Write-Host 'RIF_ANDROID_DRYRUN set - resolution o
 if ($cmdlineTools) {
   try { Invoke-AndroidCli sdk install $cmdlineTools } catch { Write-Host "WARN: cmdline-tools install failed (non-fatal): $_" }
 }
-Invoke-AndroidCli sdk install @packages
+# Install one package per android.exe invocation instead of one giant `sdk install @packages` batch.
+# #32: a single batch spins up one long-lived JVM that unpacks every package (incl. 3 multi-GB NDKs)
+# in the same process -> its native/metaspace footprint balloons and the OS fails to commit it
+# ("Native memory allocation (mmap) failed ... Failed to commit metaspace") under full build memory
+# pressure. Per-package installs keep each JVM small and short-lived, so peak native memory stays low.
+$i = 0
+foreach ($pkg in $packages) {
+  $i++
+  Write-Host "[$i/$($packages.Count)] android sdk install $pkg"
+  Invoke-AndroidCli sdk install $pkg
+}
 
 # --- machine env vars (match the upstream script's outcome) ---
 [Environment]::SetEnvironmentVariable('ANDROID_HOME', $sdkRoot, 'Machine')

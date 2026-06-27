@@ -46,12 +46,16 @@ source "qemu" "windows2025" {
   machine_type      = "q35"
   accelerator       = "kvm"
 
-  // --- sizing --- (dedicated host: 28 of 32 threads as a SANE topology, 48 of 62 GiB).
-  // A bare `cpus = 28` emits `-smp 28` = 28 single-core SOCKETS, which Server mishandles
-  // (wedges the per-processor shutdown -> reboot never completes). 2 sockets x 14 cores fixes it.
-  cpus      = 28
+  // --- sizing --- (8 vCPU / 48 GiB on a 62 GiB dedicated host).
+  // #32/#23: at 28 vCPU the parallel install peaks EXHAUST guest memory in group 3-4 — VSExtensions
+  // OOM-loops through all ~20 retries and android.exe then fails to even spawn ("Program 'android.exe'
+  // failed to run: OutOfMemoryException"). GitHub builds runner-images on ~8-vCPU Standard_D VMs;
+  // cutting parallelism (NOT RAM — the guest needs the 48G+pagefile commit headroom) is the lever that
+  // drops peak concurrent demand. A bare `cpus = N` emits `-smp N` = N single-core SOCKETS, which
+  // Server mishandles (wedges per-processor shutdown -> reboot never completes); 2 sockets x 4 cores fixes it.
+  cpus      = 8
   sockets   = 2
-  cores     = 14
+  cores     = 4
   threads   = 1
   memory    = 49152
   disk_size = "204800"
@@ -317,6 +321,23 @@ build {
     inline = [
       "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
       "foreach ($s in @('Install-ActionsCache.ps1','Install-Ruby.ps1','Install-PyPy.ps1','Install-Toolset.ps1','Configure-Toolset.ps1','Install-NodeJS.ps1','Install-PowershellAzModules.ps1','Install-Pipx.ps1','Install-Git.ps1','Install-GitHub-CLI.ps1','Install-PHP.ps1','Install-Rust.ps1','Install-Sbt.ps1','Install-Chrome.ps1','Install-EdgeDriver.ps1','Install-Firefox.ps1','Install-Selenium.ps1','Install-IEWebDriver.ps1','Install-Apache.ps1','Install-Nginx.ps1','Install-Msys2.ps1','Install-WinAppDriver.ps1','Install-R.ps1','Install-AWSTools.ps1','Install-DACFx.ps1','Install-MysqlCli.ps1','Install-SQLPowerShellTools.ps1','Install-SQLOLEDBDriver.ps1','Install-DotnetSDK.ps1','Install-Mingw64.ps1','Install-Haskell.ps1','Install-Stack.ps1','Install-Miniconda.ps1','Install-Zstd.ps1','Install-Vcpkg.ps1','Install-Bazel.ps1','Install-RootCA.ps1')) { Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" } }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // Android on a FRESH post-reboot guest (#32). android.exe's first-run catalog query + multi-package
+  // install (3 NDKs) must spawn a JVM, which fails "Program 'android.exe' failed to run:
+  // OutOfMemoryException" when run mid-group-5a — by then the hosted-toolcache install (Install-Toolset)
+  // has exhausted the guest's committable memory (cumulative, NOT parallelism: 8 vCPU still OOMs here).
+  // The windows-restart above clears it, so on the fresh guest android.exe spawns + installs fine
+  // (validated via the checkpoint loop: Resolved 20 packages, @@@OK). Its own restart keeps group 5b fresh.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "$s='Install-AndroidSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
       "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
