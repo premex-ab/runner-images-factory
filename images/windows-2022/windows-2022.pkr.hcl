@@ -159,6 +159,13 @@ build {
     destination = "C:\\image\\scripts\\build\\Install-AndroidSDK.ps1"
   }
 
+  // #15: promote Rust onto the MACHINE PATH after Install-Rust.ps1 (which installs under a per-user
+  // profile + User PATH only, invisible to the SYSTEM-account runner).
+  provisioner "file" {
+    source      = "./scripts/Promote-Rust-MachinePath.ps1"
+    destination = "C:\\image\\scripts\\build\\Promote-Rust-MachinePath.ps1"
+  }
+
   // FULL runner-images toolset (parity with windows-2022) — the complete ordered install set
   // from build.windows-2022, in reboot-separated discovery groups that mirror the REAL template's
   // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
@@ -352,6 +359,31 @@ build {
     environment_vars = local.ri_env
     inline = [
       "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $lk=Get-ChildItem \"C:\\Program Files\\Microsoft Visual Studio\\2022\\*\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended v143 MSVC link dir (from disk, not vswhere): $($lk.DirectoryName)\" } else { Write-Host 'WARN: v143 14.4x link.exe not found on disk' }; $env:CARGO_BUILD_JOBS='1'; $env:RUSTFLAGS='-C codegen-units=1'; for ($r=1; $r -le 4; $r++) { & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -eq 0) { break }; Write-Host \"@@@RETRY $s attempt $r exit $LASTEXITCODE (non-deterministic rustc KVM crash; cargo resumes cached deps)\"; Start-Sleep 5 }; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE after $r tries\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // #15: promote Rust onto the MACHINE PATH (Install-Rust.ps1 above installs it User-PATH-only, so
+  // the SYSTEM-account runner can't see rustc/cargo in a job). Registry write persists the reboot.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "& \"C:\\image\\scripts\\build\\Promote-Rust-MachinePath.ps1\"",
+      "exit 0",
+    ]
+  }
+
+  // #15/#32/#14: Android SDK on a fresh post-reboot guest. It's skipped during the main groups (the
+  // multi-package install hit a JVM native OOM under cumulative build memory pressure, #32); run
+  // post-reboot via the JVM-free android.exe override (#14) it installs cleanly. Its own reboot keeps
+  // group-5b fresh.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "$s='Install-AndroidSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
   }
