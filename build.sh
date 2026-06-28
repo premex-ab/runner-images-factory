@@ -22,7 +22,8 @@ case "$cmd" in
     vimg="${2:-}"
     { [ -n "$vimg" ] && [ -d "$HERE/images/$vimg" ]; } || die "usage: ./build.sh verify <image> [qcow2-path]"
     case "$vimg" in
-      macos-*) require_macos_tart; verify_image "$vimg" ;;
+      macos-*)   require_macos_tart; verify_image "$vimg" ;;
+      *-arm64)   require_macos_tart; verify_linux_tart "$vimg" ;;   # Tart (arm64 Linux), not KVM
       *) require_linux_kvm; verify_image "$vimg" "${3:-$(find "$HERE/out/$vimg" -name '*.qcow2' 2>/dev/null | head -1)}" ;;
     esac
     exit 0 ;;
@@ -58,6 +59,13 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 case "$IMAGE" in
+  *-arm64)
+    # arm64 Linux via Tart (Apple Silicon Mac) — no arm64 KVM host here. Mirrors the macOS path.
+    require_macos_tart
+    note "building $IMAGE via Tart (clone the cirruslabs base + provision over SSH)"
+    build_linux_tart "$IMAGE" "$IMGDIR"
+    note "done: tart image rif-$IMAGE  —  ./build.sh verify $IMAGE to boot-test it"
+    exit 0 ;;
   windows-*)
     [ -n "$ISO" ] || die "windows images need your own ISO: --iso /path/to/eval.iso
   free Server 2025 eval (no key): https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025"

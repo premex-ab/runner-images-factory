@@ -168,6 +168,66 @@ CHECKS
   die "VERIFY FAIL"
 }
 
+# --- Linux via Tart (arm64 Linux guest on an Apple Silicon Mac) ---------------------
+# The arm64 analog of the x86 ubuntu-* Packer/KVM path: there's no arm64 KVM host here, so
+# we clone the cirruslabs Ubuntu Tart base and provision over SSH (same shape as build_macos).
+# Booted with --nested so nested Docker works inside the guest. Result: tart image rif-<image>.
+# cirruslabs' Ubuntu Tart base creds are admin/admin (same as macOS); reuse _tart_ip + _mac_ssh.
+build_linux_tart() {
+  local image="$1" imgdir="$2" ip tpid name
+  name="rif-$image"
+  # shellcheck source=/dev/null
+  source "$imgdir/config.sh"
+  note "cloning $BASE_IMAGE -> $name"
+  tart stop "$name" 2>/dev/null || true
+  tart delete "$name" 2>/dev/null || true
+  tart clone "$BASE_IMAGE" "$name"
+  note "booting $name (nested, headless) to provision"
+  tart run --nested --no-graphics "$name" >/dev/null 2>&1 &   # --nested: nested Docker/KVM in-guest
+  tpid=$!
+  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  for _ in $(seq 1 40); do _mac_ssh "$ip" true 2>/dev/null && break; sleep 3; done   # wait for sshd (VM just booted)
+  note "provisioning over SSH ($ip)"
+  _mac_ssh "$ip" "RUNNER_VERSION=$RUNNER_VERSION RUNNER_ARCH=${RUNNER_ARCH:-arm64} bash -s" < "$imgdir/provision.sh"
+  _mac_ssh "$ip" "sudo shutdown -h now" 2>/dev/null || true
+  wait "$tpid" 2>/dev/null || true
+  note "built tart image: $name"
+}
+
+verify_linux_tart() {
+  local image="$1" ip tpid out name
+  name="rif-$image"
+  tart list 2>/dev/null | grep -qw "$name" || die "no tart image '$name' — build it first"
+  note "verifying $name — booting + running the toolchain (~2-3 min)"
+  tart run --nested --no-graphics "$name" >/dev/null 2>&1 &
+  tpid=$!
+  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  for _ in $(seq 1 40); do _mac_ssh "$ip" true 2>/dev/null && break; sleep 3; done   # wait for sshd (VM just booted)
+  out="$(_mac_ssh "$ip" "bash -l" <<'CHECKS'
+fail=0
+# login bash sources /etc/profile.d/*.sh (go, dotnet) so those tools resolve on PATH.
+for _ in $(seq 1 30); do systemctl is-active docker >/dev/null 2>&1 && break; sleep 2; done
+chk(){ printf 'CHECK %-7s ' "$1"; if eval "$2" >/tmp/o 2>&1; then echo "OK $(head -1 /tmp/o)"; else echo FAIL; fail=1; fi; }
+chk docker  "docker info"
+chk git     "git --version"
+chk gitlfs  "git lfs version"
+chk node    "node --version"
+chk python  "python3 --version"
+chk gcc     "gcc --version"
+chk cmake   "cmake --version"
+chk gh      "gh --version"
+chk runner  "test -f ~/actions-runner/run.sh && echo baked"
+chk dockgrp "id -nG | tr ' ' '\n' | grep -qx docker && echo in-docker-group"
+[ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
+CHECKS
+)"
+  echo "--- verification output ---"; echo "$out" | grep -E 'CHECK |VERIFY_RESULT'
+  tart stop "$name" >/dev/null 2>&1 || true
+  wait "$tpid" 2>/dev/null || true
+  echo "$out" | grep -q 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; return 0; }
+  die "VERIFY FAIL"
+}
+
 verify_ubuntu() {
   local qcow="$1" wd
   wd="$(mktemp -d)"
