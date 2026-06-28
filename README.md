@@ -34,6 +34,9 @@ cd runner-images-factory
 # macOS — on an Apple Silicon Mac via Tart (needs `tart` + `sshpass`), no ISO:
 ./build.sh macos-tahoe
 
+# arm64 Linux — also on an Apple Silicon Mac via Tart (no arm64 KVM host needed):
+./build.sh ubuntu-2404-arm64
+
 # Verify a built image — boots it + runs the toolchain for real (pass/fail):
 ./build.sh verify ubuntu-2404
 ```
@@ -62,6 +65,14 @@ runners (object store, a file server, a local registry, your orchestrator's imag
 - **macOS is a different path** — built with **Tart** (Apple Silicon Mac only), not Packer/QEMU.
   It clones the cirruslabs macOS base (a maintained CI image — the "consume" analog), bakes the
   runner, and verifies over SSH. Not redistributable (Apple EULA), which fits the model.
+- **arm64 Linux is the same Tart path** — `ubuntu-2404-arm64` builds on an Apple Silicon Mac too
+  (there's no arm64 KVM host), cloning the cirruslabs Ubuntu Tart base and provisioning a broad
+  toolset over SSH (`build_linux_tart`/`verify_linux_tart`). It's the arm64 sibling of the x86
+  `ubuntu-2404` (Packer/qcow2) cell. Scope is a *solid, broad* arm64 toolset (docker, the build
+  toolchain, git/git-lfs, Node, Python, Go, .NET, GitHub CLI, the linux-arm64 runner) — **not**
+  full `ubuntu-24.04-arm` parity (the runner-images install scripts are x86-centric); the cell's
+  `provision.sh` lists the GitHub-hosted tools deliberately left out as arm64 gaps. The Ubuntu
+  base is freely redistributable.
 - **Keeping up with upstream:** bump the pinned `ri_ref`, rebuild, re-verify.
 
 ## Parity
@@ -75,6 +86,7 @@ manifest at the pinned ref. See [PARITY.md](PARITY.md) for the per-script checkl
 |---|---|---|---|
 | `ubuntu-2204` | full set (77/77 scripts) | ✅ toolchain | — none |
 | `ubuntu-2404` | full set (67/67 scripts) | ✅ manifest parity | — none |
+| `ubuntu-2404-arm64` <sup>(Tart, Apple Silicon)</sup> | broad arm64 toolset <sup>[5]</sup> | ▢ via Tart (`verify ubuntu-2404-arm64`) | browsers/Selenium, Android SDK, cloud CLIs, pwsh, toolcache <sup>[5]</sup> |
 | `windows-2025` | full set + Visual Studio 2022 | ✅ manifest parity | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
 | `windows-2022` | full set + Visual Studio 2022 | ✅ cell <sup>[3]</sup> | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
 | `macos-13/14/15/26` | cirruslabs base + GitHub runner | ✅ over SSH | n/a <sup>[4]</sup> |
@@ -99,6 +111,15 @@ cloud CLIs (Azure/AWS/GCP), browsers + Selenium, and the build tooling — inclu
 4. macOS is built from the maintained **cirruslabs** base image via Tart (the "consume, don't fork"
    analog for Apple hardware), not the runner-images install scripts — so it tracks that base, not the
    `toolset.json` manifest.
+5. `ubuntu-2404-arm64` is **not** full `ubuntu-24.04-arm` parity. There's no arm64 KVM host here, so it
+   builds via **Tart on an Apple Silicon Mac** (like the macOS cells), cloning the cirruslabs Ubuntu base
+   and installing a **broad toolset that builds reliably on arm64** from apt + first-party arm64 upstreams
+   (the runner-images install set is x86-centric). Baked: docker.io, the build toolchain (gcc/g++/make/
+   cmake/ninja/pkg-config), git + git-lfs, curl/wget/unzip/zip/tar/jq/zstd, Python 3 (+pip/venv/dev),
+   Node.js LTS, Go, .NET 8 SDK, GitHub CLI, and the **linux-arm64** Actions runner. Deliberately omitted as
+   arm64 gaps (no clean arm64 install or heavy/flaky): Google Chrome + Edge + Selenium, the Android SDK,
+   Azure/AWS/GCP CLIs, PowerShell, and the multi-version hosted toolcache — see
+   `images/ubuntu-2404-arm64/provision.sh` for the full list a human can opt back in.
 
 ## Roadmap
 

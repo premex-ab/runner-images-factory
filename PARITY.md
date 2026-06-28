@@ -11,6 +11,7 @@ hardware** (KVM qcow2 / Tart) and **boot-verified**. "Suitable for self-hosting"
 |---|---|---|---|
 | `ubuntu-22.04` | `ubuntu-2204` | KVM/qcow2 | ✅ **full toolset built + verified** (77/77, 67G) |
 | `ubuntu-24.04` | `ubuntu-2404` | KVM/qcow2 | ✅ **full toolset built + verified** (67/67, 66G) |
+| `ubuntu-24.04-arm` | `ubuntu-2404-arm64` | **Tart** (Apple Silicon) | ▢ broad arm64 toolset (not full parity — see §2); verify via `./build.sh verify ubuntu-2404-arm64` |
 | `windows-2022` | `windows-2022` | KVM/qcow2 | ✅ full toolset + VS 2022 (same cell as win25); Android + 2 vsix excluded (see below) |
 | `windows-2025` | `windows-2025` | KVM/qcow2 | ✅ **full toolset + VS 2022 built + verified** (manifest parity); Android + 2 vsix excluded (see below) |
 | `macos-13` (Ventura) | `macos-ventura` | Tart | ✅ built + verified (clang 14, node 20) |
@@ -41,6 +42,35 @@ GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
   - [x] `inline_shebang=/bin/bash` (Packer default `-e` aborted the discovery loop)
   - [x] ship real `tests/Helpers.psm1` so `.ps1` get `Get-ToolsetContent` (Common.Helpers chain)
   - [x] verify: per-check timeout + print VERIFY_RESULT after the core gate (66 G image is slow)
+
+### ubuntu-2404-arm64 (Tart, Apple Silicon — broad toolset, not full parity)
+GitHub ships an `ubuntu-24.04-arm` hosted image. We have **no arm64 KVM host**, so this cell builds
+via **Tart on an Apple Silicon Mac** (the same path as the macOS cells), cloning the cirruslabs Ubuntu
+Tart base and provisioning over SSH (`build_linux_tart` / `verify_linux_tart` in `lib/common.sh`). It is
+**intentionally a broad, reliably-building arm64 toolset, not full `ubuntu-24.04-arm` parity** — the
+runner-images install scripts are x86-centric, so we install from apt + first-party arm64 upstreams.
+- [x] docker.io (engine + compose-v2 + buildx) + enable + add the ssh user to `docker`
+- [x] build toolchain: build-essential, gcc/g++, make, cmake, ninja-build, pkg-config, autotools
+- [x] git + git-lfs (system install), curl/wget/unzip/zip/tar/xz/zstd/jq
+- [x] Python 3 (+ pip, venv, dev headers)
+- [x] Node.js LTS (NodeSource arm64)
+- [x] Go (official linux-arm64 tarball), .NET 8 SDK (dotnet-install, arm64)
+- [x] GitHub CLI (cli.github.com apt repo, arm64)
+- [x] GitHub Actions runner for **linux-arm64**, baked under `~/actions-runner` (+ `installdependencies.sh`)
+- **Omitted as arm64 gaps** (no clean arm64 install, or heavy/flaky — a human can opt these back in;
+  full list with rationale is in `images/ubuntu-2404-arm64/provision.sh`):
+  - [ ] **Browsers + Selenium** — Google Chrome / Microsoft Edge ship Linux apt builds for amd64 only
+        (no arm64 .deb + matching webdrivers). Firefox is arm64-OK if wanted.
+  - [ ] **Android SDK** — heavy + a known pain point even on x86 (see the Windows #32 note); left out of
+        the reliable baseline.
+  - [ ] **Azure / AWS / Google Cloud CLIs** — installable on arm64 but add install surface; omitted from
+        the lean baseline.
+  - [ ] **PowerShell (pwsh)** — Microsoft ships arm64 builds; omitted only to keep the baseline lean.
+  - [ ] **Hosted toolcache** (`/opt/hostedtoolcache` multi-version Python/Node/Go/Ruby/PyPy) — the x86
+        cell builds this via runner-images' `Install-Toolset.ps1`; not replicated. `actions/setup-*` falls
+        back to downloading versions at job time.
+  - [ ] Homebrew/Linuxbrew, Haskell, Julia, Rust, Bazel, vcpkg, PHP, system Ruby, MySQL/PostgreSQL,
+        Apache/Nginx — all arm64-capable, omitted from the lean baseline; add per need.
 
 ### windows (the Install-*.ps1 set)
 - [x] curated (pwsh, choco, 7zip, git, node, mingw, webview2)
