@@ -63,6 +63,11 @@ sudo tar -C /usr/local -xzf /tmp/go.tgz
 rm -f /tmp/go.tgz
 echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh >/dev/null
 sudo chmod +x /etc/profile.d/go.sh
+# Also symlink into /usr/local/bin (already on the default non-login PATH) so jobs
+# launched in a non-login shell (the runner's `run:` steps) resolve `go` without
+# sourcing /etc/profile.d — same treatment as the dotnet symlink below.
+sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+sudo ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 # --- .NET SDK (Microsoft's dotnet-install script — has first-class linux-arm64 builds) ---
 note ".NET SDK 8.0 LTS (dotnet-install, linux-arm64)"
