@@ -50,8 +50,16 @@ if ($actual -ne $expected) { throw "rustup-init.exe checksum mismatch: expected 
 Write-Host "Checksum OK: $actual"
 
 Write-Host "Running rustup-init (stable, minimal) ..."
-& $initExe -y --default-toolchain stable --profile minimal --no-modify-path
-if ($LASTEXITCODE -ne 0) { throw "rustup-init failed with exit code $LASTEXITCODE" }
+# Retry: rustup-init can crash 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN, exit -1073740791)
+# under nested-KVM host-state/memory pressure (#13). It's non-deterministic, so retry a few
+# times; this provisioner also runs on a fresh post-reboot guest to minimise the pressure.
+for ($r = 1; $r -le 5; $r++) {
+    & $initExe -y --default-toolchain stable --profile minimal --no-modify-path
+    if ($LASTEXITCODE -eq 0) { break }
+    Write-Host "rustup-init attempt $r failed (exit $LASTEXITCODE) — retrying"
+    Start-Sleep 5
+}
+if ($LASTEXITCODE -ne 0) { throw "rustup-init failed after $r attempts (last exit $LASTEXITCODE)" }
 
 # Make cargo/rustc resolvable for the rest of THIS script.
 $env:Path = "$CargoBin;$env:Path"
