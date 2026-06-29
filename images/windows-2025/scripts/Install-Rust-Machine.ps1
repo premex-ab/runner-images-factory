@@ -56,7 +56,7 @@ Write-Host "Running rustup-init (stable, minimal) ..."
 for ($r = 1; $r -le 5; $r++) {
     & $initExe -y --default-toolchain stable --profile minimal --no-modify-path
     if ($LASTEXITCODE -eq 0) { break }
-    Write-Host "rustup-init attempt $r failed (exit $LASTEXITCODE) — retrying"
+    Write-Host "rustup-init attempt $r failed (exit $LASTEXITCODE) - retrying"
     Start-Sleep 5
 }
 if ($LASTEXITCODE -ne 0) { throw "rustup-init failed after $r attempts (last exit $LASTEXITCODE)" }
