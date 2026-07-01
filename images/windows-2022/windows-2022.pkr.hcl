@@ -455,4 +455,18 @@ build {
       "Write-Host 'cloudbase-init configured'",
     ]
   }
+
+  // #18 BUILD GATE — fail LOUDLY if the runner or cloudbase-init didn't actually install. They
+  // silently no-op'd once (a preceding step corrupted C:\Windows\Temp where Packer stages provisioner
+  // scripts + the guest C: hit 100% full), shipping a runner-less image that boots but never registers
+  // a runner. This gate makes such an image impossible to pass off as a successful build.
+  provisioner "powershell" {
+    inline = [
+      "$ErrorActionPreference='Stop'",
+      "if (-not (Test-Path 'C:\\actions-runner\\run.cmd')) { throw 'BUILD GATE FAILED: C:\\actions-runner\\run.cmd missing (runner not baked)' }",
+      "if (-not (Get-Service cloudbase-init -ErrorAction SilentlyContinue)) { throw 'BUILD GATE FAILED: cloudbase-init service missing (not installed)' }",
+      "if ((Get-Item 'C:\\Program Files\\Cloudbase Solutions\\Cloudbase-Init\\conf\\cloudbase-init.conf').Length -lt 100) { throw 'BUILD GATE FAILED: cloudbase-init.conf is empty' }",
+      "Write-Host '@@@OK BUILD GATE: actions-runner + cloudbase-init present'",
+    ]
+  }
 }
