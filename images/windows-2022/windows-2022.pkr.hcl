@@ -159,6 +159,15 @@ build {
     destination = "C:\\image\\scripts\\build\\Install-AndroidSDK.ps1"
   }
 
+  // #15: machine-wide Rust. Upstream Install-Rust.ps1 installs under a per-user profile +
+  // User PATH only (invisible to the SYSTEM-account runner) AND crate-builds (the #13
+  // 0xC0000409 nested-KVM crash). This download-only rustup install to C:\Rust + Machine
+  // PATH avoids both; proven on windows-2025-v4. Swapped in for Install-Rust.ps1 below.
+  provisioner "file" {
+    source      = "./scripts/Install-Rust-Machine.ps1"
+    destination = "C:\\image\\scripts\\build\\Install-Rust-Machine.ps1"
+  }
+
   // FULL runner-images toolset (parity with windows-2022) — the complete ordered install set
   // from build.windows-2022, in reboot-separated discovery groups that mirror the REAL template's
   // windows-restart points. (The earlier flat 6-group layout dropped reboots the real template
@@ -344,14 +353,29 @@ build {
   }
   provisioner "windows-restart" { restart_timeout = "30m" }
 
-  // Rust in a dedicated in-process provisioner (after the group-5a reboot; fresh powershell + full
-  // machine env). Start-Process strips the VS dev env so rustc's MSVC-linker detection falls back to
-  // a PATH `link` (the GNU coreutil -> "extra operand") and cargo build scripts fail to link;
-  // in-process matches the real template.
+  // #15: Rust (machine-wide) in a dedicated provisioner on this fresh post-group-5a-reboot guest.
+  // Replaces upstream Install-Rust.ps1 (per-user PATH + crate-builds -> #13 0xC0000409 crash) with a
+  // download-only rustup install to C:\Rust + Machine PATH (proven on windows-2025-v4).
   provisioner "powershell" {
     environment_vars = local.ri_env
     inline = [
-      "$ErrorActionPreference='Continue'; $s='Install-Rust.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; $lk=Get-ChildItem \"C:\\Program Files\\Microsoft Visual Studio\\2022\\*\\VC\\Tools\\MSVC\\14.4*\\bin\\Hostx64\\x64\\link.exe\" -EA SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1; if ($lk) { $env:Path=$lk.DirectoryName+';'+$env:Path; Write-Host \"prepended v143 MSVC link dir (from disk, not vswhere): $($lk.DirectoryName)\" } else { Write-Host 'WARN: v143 14.4x link.exe not found on disk' }; $env:CARGO_BUILD_JOBS='1'; $env:RUSTFLAGS='-C codegen-units=1'; for ($r=1; $r -le 4; $r++) { & \"C:\\image\\scripts\\build\\$s\"; if ($LASTEXITCODE -eq 0) { break }; Write-Host \"@@@RETRY $s attempt $r exit $LASTEXITCODE (non-deterministic rustc KVM crash; cargo resumes cached deps)\"; Start-Sleep 5 }; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE after $r tries\" }; Write-Host \"@@@OK $s\" } catch { Write-Host \"@@@FAIL $s : $_\" }",
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "$s='Install-Rust-Machine.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
+      "exit 0",
+    ]
+  }
+  provisioner "windows-restart" { restart_timeout = "30m" }
+
+  // #18/#32/#14: Android SDK on a fresh post-reboot guest. It was staged but NEVER invoked (skipped
+  // pending #32's JVM-OOM fix); #32 is fixed, so run the JVM-free android.exe override (#14) here,
+  // post-reboot, where free memory lets the multi-package install complete. Own reboot keeps 5b fresh.
+  provisioner "powershell" {
+    environment_vars = local.ri_env
+    inline = [
+      "$ErrorActionPreference='Continue'; $b='C:\\image\\scripts\\build'; $fails=@()",
+      "$s='Install-AndroidSDK.ps1'; Write-Host \"@@@RUN $s\"; try { $global:LASTEXITCODE=0; & \"$b\\$s\"; if ($LASTEXITCODE -gt 0) { throw \"exit $LASTEXITCODE\" }; Write-Host \"@@@OK $s\" } catch { $fails+=$s; Write-Host \"@@@FAIL $s : $_\" }",
+      "Write-Host \"@@@FAILURES: $($fails -join ' ')\"",
       "exit 0",
     ]
   }
