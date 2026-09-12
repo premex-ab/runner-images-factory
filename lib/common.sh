@@ -109,15 +109,27 @@ require_macos_tart() {
   command -v sshpass >/dev/null || die "sshpass not installed — brew install hudochenkov/sshpass/sshpass"
 }
 
-_tart_ip() { local n="$1" ip _; for _ in $(seq 1 60); do ip=$(tart ip "$n" 2>/dev/null); [ -n "$ip" ] && { echo "$ip"; return 0; }; sleep 3; done; return 1; }
+_tart_ip() {
+  local n="$1" tpid="${2:-}" ip _
+  for _ in $(seq 1 60); do
+    # A failed boot (for example, no free host VM slot) cannot acquire an IP.
+    if [ -n "$tpid" ] && ! kill -0 "$tpid" 2>/dev/null; then return 1; fi
+    ip=$(tart ip "$n" 2>/dev/null) || true
+    [ -n "$ip" ] && { echo "$ip"; return 0; }
+    sleep 3
+  done
+  return 1
+}
 
 # cirruslabs base creds are admin/admin. Force password-only auth: the base's sshd has a low
 # MaxAuthTries, so any key/agent probing trips "too many authentication failures".
-_mac_ssh() { local ip="$1"; shift; sshpass -p admin ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "admin@$ip" "$@"; }
+_mac_ssh() { local ip="$1"; shift; sshpass -p admin ssh -o ConnectTimeout=10 -o ConnectionAttempts=1 -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "admin@$ip" "$@"; }
 
-build_macos() {
-  local image="$1" imgdir="$2" ip tpid name
-  name="rif-$image"
+build_macos() (
+  local image="$1" imgdir="$2" ip tpid name run_log
+  name="${RIF_TART_VM:-rif-$image}"
+  run_log=$(mktemp)
+  trap 'tart stop "$name" >/dev/null 2>&1 || true; rm -f "$run_log"' EXIT
   # shellcheck source=/dev/null
   source "$imgdir/config.sh"
   note "cloning $BASE_IMAGE -> $name"
@@ -125,25 +137,37 @@ build_macos() {
   tart delete "$name" 2>/dev/null || true
   tart clone "$BASE_IMAGE" "$name"
   note "booting $name (headless) to provision"
-  tart run --no-graphics "$name" >/dev/null 2>&1 &
+  tart run --no-graphics "$name" >"$run_log" 2>&1 &
   tpid=$!
-  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  ip="$(_tart_ip "$name" "$tpid")" || { cat "$run_log" >&2; kill "$tpid" 2>/dev/null || true; die "$name failed to boot or never got an IP"; }
   for _ in $(seq 1 40); do _mac_ssh "$ip" true 2>/dev/null && break; sleep 3; done   # wait for sshd (VM just booted)
   note "provisioning over SSH ($ip)"
-  _mac_ssh "$ip" "RUNNER_VERSION=$RUNNER_VERSION bash -s" < "$imgdir/provision.sh"
+  local guest_env="RUNNER_VERSION=$RUNNER_VERSION XCODE_VERSION=$XCODE_VERSION IOS_RUNTIME=$IOS_RUNTIME IOS_RUNTIME_BUILD=${IOS_RUNTIME_BUILD:-} IOS_RUNTIME_DOWNLOAD_VERSION=${IOS_RUNTIME_DOWNLOAD_VERSION:-$IOS_RUNTIME} IOS_DEVICE_TYPE=$IOS_DEVICE_TYPE"
+  if [ -n "${IOS_RUNTIME_DMG:-}" ]; then
+    [ -f "$IOS_RUNTIME_DMG" ] || die "IOS_RUNTIME_DMG must name an Apple simulator runtime DMG"
+    note "staging the supplied Apple simulator runtime"
+    _mac_ssh "$ip" "cat > /tmp/runner-ios-runtime.dmg" < "$IOS_RUNTIME_DMG"
+    guest_env="$guest_env IOS_RUNTIME_DMG=/tmp/runner-ios-runtime.dmg"
+  fi
+  _mac_ssh "$ip" "$guest_env bash -s" < "$HERE/lib/provision-macos.sh"
+  _mac_ssh "$ip" "$guest_env bash -s" < "$HERE/lib/verify-macos.sh"
   _mac_ssh "$ip" "sudo shutdown -h now" 2>/dev/null || true
   wait "$tpid" 2>/dev/null || true
   note "built tart image: $name"
-}
+)
 
-verify_macos() {
-  local image="$1" ip tpid out name
-  name="rif-$image"
+verify_macos() (
+  local image="$1" ip tpid out name run_log
+  # shellcheck source=/dev/null
+  source "$HERE/images/$image/config.sh"
+  name="${RIF_TART_VM:-rif-$image}"
+  run_log=$(mktemp)
+  trap 'tart stop "$name" >/dev/null 2>&1 || true; rm -f "$run_log"' EXIT
   tart list 2>/dev/null | grep -qw "$name" || die "no tart image '$name' — build it first"
   note "verifying $name — booting + running the toolchain (~2-3 min)"
-  tart run --no-graphics "$name" >/dev/null 2>&1 &
+  tart run --no-graphics "$name" >"$run_log" 2>&1 &
   tpid=$!
-  ip="$(_tart_ip "$name")" || { kill "$tpid" 2>/dev/null; die "$name never got an IP"; }
+  ip="$(_tart_ip "$name" "$tpid")" || { cat "$run_log" >&2; kill "$tpid" 2>/dev/null || true; die "$name failed to boot or never got an IP"; }
   for _ in $(seq 1 40); do _mac_ssh "$ip" true 2>/dev/null && break; sleep 3; done   # wait for sshd (VM just booted)
   out="$(_mac_ssh "$ip" "zsh -l" <<'CHECKS'
 fail=0
@@ -161,12 +185,14 @@ chk runner "test -f ~/actions-runner/run.sh && echo baked"
 [ $fail = 0 ] && echo VERIFY_RESULT=PASS || echo VERIFY_RESULT=FAIL
 CHECKS
 )"
+  local native_result=0
+  _mac_ssh "$ip" "XCODE_VERSION=$XCODE_VERSION IOS_RUNTIME=$IOS_RUNTIME IOS_RUNTIME_BUILD=${IOS_RUNTIME_BUILD:-} IOS_DEVICE_TYPE=$IOS_DEVICE_TYPE bash -s" < "$HERE/lib/verify-macos.sh" || native_result=$?
   echo "--- verification output ---"; echo "$out" | grep -E 'CHECK |VERIFY_RESULT'
   tart stop "$name" >/dev/null 2>&1 || true
   wait "$tpid" 2>/dev/null || true
-  echo "$out" | grep -q 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; return 0; }
+  [ "$native_result" = 0 ] && echo "$out" | grep -q 'VERIFY_RESULT=PASS' && { note "VERIFY PASS"; return 0; }
   die "VERIFY FAIL"
-}
+)
 
 # --- Linux via Tart (arm64 Linux guest on an Apple Silicon Mac) ---------------------
 # The arm64 analog of the x86 ubuntu-* Packer/KVM path: there's no arm64 KVM host here, so
