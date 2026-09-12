@@ -21,6 +21,9 @@ jobs:
           # -S error: block on real bugs, not style nits.
           shellcheck -S error build.sh lib/*.sh images/*/bootspam.sh images/*/provision.sh
 
+      - name: macOS image gate regression tests
+        run: python3 tests/macos_gate_test.py
+
       - name: packer validate (syntax-only)
         run: |
           curl -fsSL -o /tmp/packer.zip https://releases.hashicorp.com/packer/1.11.2/packer_1.11.2_linux_amd64.zip

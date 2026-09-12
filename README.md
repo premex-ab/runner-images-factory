@@ -63,7 +63,7 @@ runners (object store, a file server, a local registry, your orchestrator's imag
   (COM1); macOS boots the Tart VM and SSHes in. The genuine functional test — not "scripts
   exited 0".
 - **macOS is a different path** — built with **Tart** (Apple Silicon Mac only), not Packer/QEMU.
-  It clones the cirruslabs macOS base (a maintained CI image — the "consume" analog), bakes the
+  It clones the pinned cirruslabs full Xcode image (the "consume" analog), bakes the
   runner, and verifies over SSH. Not redistributable (Apple EULA), which fits the model.
 - **arm64 Linux is the same Tart path** — `ubuntu-2404-arm64` builds on an Apple Silicon Mac too
   (there's no arm64 KVM host), cloning the cirruslabs Ubuntu Tart base and provisioning a broad
@@ -89,7 +89,8 @@ manifest at the pinned ref. See [PARITY.md](PARITY.md) for the per-script checkl
 | `ubuntu-2404-arm64` <sup>(Tart, Apple Silicon)</sup> | broad arm64 toolset <sup>[5]</sup> | ▢ via Tart (`verify ubuntu-2404-arm64`) | browsers/Selenium, Android SDK, cloud CLIs, pwsh, toolcache <sup>[5]</sup> |
 | `windows-2025` | full set + Visual Studio 2022 | ✅ manifest parity | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
 | `windows-2022` | full set + Visual Studio 2022 | ✅ cell <sup>[3]</sup> | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
-| `macos-13/14/15/26` | cirruslabs base + GitHub runner | ✅ over SSH | n/a <sup>[4]</sup> |
+| `macos-15` | pinned cirruslabs Xcode 26.3 + GitHub runner | ✅ device + simulator compilation and execution, including reboot (2026-09-12) | n/a <sup>[4]</sup> |
+| `macos-13/14/26` | pinned cirruslabs Xcode + GitHub runner | requires fresh functional gate | n/a <sup>[4]</sup> |
 
 Everything else GitHub ships **is** in parity: the languages (Python/Go/Node/Ruby/PHP/Rust/Java
 8-25/Kotlin/…), the toolcache, .NET 8/9/10 SDKs, the databases (MySQL/PostgreSQL/MongoDB), the
@@ -131,3 +132,51 @@ cloud CLIs (Azure/AWS/GCP), browsers + Selenium, and the build tooling — inclu
 - [ ] Close the two excluded Windows tools — Android SDK ([#32](https://github.com/premex-ab/runner-images-factory/issues/32)) + 2 VS extensions ([#23](https://github.com/premex-ab/runner-images-factory/issues/23)) — both host-memory-pressure build failures
 - [ ] Real Pester validation (replace the stubbed `Invoke-PesterTests`)
 - [ ] Optional cloud finalize (AMI / GCE image / Azure VHD) — deferred until needed
+
+## macOS includes Xcode by default
+
+Every `macos-*` cell consumes a **full Xcode image**, pinned by OCI digest in
+`config.sh`. Cirrus Labs `*-base` images contain CommandLineTools; they are not
+sufficient for iOS builds. The previous `clang --version` / `swift --version`
+checks could pass without Xcode or an iOS SDK.
+
+| Image | Xcode | Pinned iOS simulator | Device |
+|---|---|---|---|
+| macos-ventura | 14.3.1 | 16.4 | iPhone 14 Pro |
+| macos-sonoma | 16.1 | 18.1 | iPhone 16 Pro |
+| macos-sequoia | 26.3 | 26.3 | iPhone 17 Pro |
+| macos-tahoe | 26.5 | 26.3 | iPhone 17 Pro |
+
+`RIF_TART_VM` optionally selects a versioned local VM name for both build and
+verify, preserving a previous image for rollback.
+
+`lib/provision-macos.sh` initializes Xcode, installs a missing pinned simulator
+runtime, creates the named simulator and installs the Actions runner.
+`lib/verify-macos.sh` verifies the selected Xcode version, compiles and links a
+UIKit program for both iPhone and simulator, boots a throwaway simulator and
+executes that program. The build fails if this gate fails; `./build.sh verify
+macos-sequoia` repeats it after a fresh boot. Temporary verification devices are
+removed, including on failure. Factory verification never needs Apple signing
+credentials. Projects supply their own signing material at job time.
+
+Build on an Apple Silicon Mac with enough disk for the downloaded image, its
+local clone and job writes. Full Xcode images are much larger than base images
+(roughly 45–70 GB compressed, depending on the release). Publish privately under
+an immutable version tag and verify a real CI job before switching a shared pool.
+Do not equate an upstream tag's existence with a successful local boot test.
+Older OS images cannot compile projects that require a newer Xcode SDK.
+
+### Archived Apple simulator runtimes
+
+Apple may remove older runtimes from `xcodebuild -downloadPlatform`. For the
+pinned iOS 26.3 simulator, the runtime's public version is 26.3.1 and its build is
+23D8133. When the download is unavailable, supply the original Apple runtime DMG:
+
+```sh
+IOS_RUNTIME_DMG=/path/to/saved-ios-runtime.dmg ./build.sh macos-sequoia
+```
+
+The host stages it into the build VM; `simctl runtime add` imports it and the
+staging copy is removed. Verification checks the configured runtime **build**,
+not just its display version. Preserve the Apple DMG privately as a build input.
+No machine-specific input paths or private download services belong in this repo.

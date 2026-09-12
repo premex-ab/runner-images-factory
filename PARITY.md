@@ -14,10 +14,10 @@ hardware** (KVM qcow2 / Tart) and **boot-verified**. "Suitable for self-hosting"
 | `ubuntu-24.04-arm` | `ubuntu-2404-arm64` | **Tart** (Apple Silicon) | ▢ broad arm64 toolset (not full parity — see §2); verify via `./build.sh verify ubuntu-2404-arm64` |
 | `windows-2022` | `windows-2022` | KVM/qcow2 | ✅ full toolset + VS 2022 (same cell as win25); Android + 2 vsix excluded (see below) |
 | `windows-2025` | `windows-2025` | KVM/qcow2 | ✅ **full toolset + VS 2022 built + verified** (manifest parity); Android + 2 vsix excluded (see below) |
-| `macos-13` (Ventura) | `macos-ventura` | Tart | ✅ built + verified (clang 14, node 20) |
-| `macos-14` (Sonoma) | `macos-sonoma` | Tart | ✅ built + verified (clang 16, node 24) |
-| `macos-15` (Sequoia) | `macos-sequoia` | Tart | ✅ built + verified (clang 17, node 24) |
-| (macOS 26 Tahoe — newer than GitHub) | `macos-tahoe` | Tart | ✅ built + verified |
+| `macos-13` (Ventura) | `macos-ventura` | Tart | Xcode 14.3.1 pinned; fresh Xcode gate required |
+| `macos-14` (Sonoma) | `macos-sonoma` | Tart | Xcode 16.1 pinned; fresh Xcode gate required |
+| `macos-15` (Sequoia) | `macos-sequoia` | Tart | ✅ Xcode 26.3 built + reboot-verified (2026-09-12) |
+| (macOS 26 Tahoe — newer than GitHub) | `macos-tahoe` | Tart | Xcode 26.5 pinned; fresh Xcode gate required |
 
 GitHub has retired ubuntu-20.04, windows-2019, macos-12 — we skip those.
 
@@ -86,9 +86,14 @@ runner-images install scripts are x86-centric, so we install from apt + first-pa
     `toolset.json` vsix list alongside the pre-existing SSIS/Wix drops; the rest install.
 
 ### macOS
-- [x] runner baked on the cirruslabs base (already a maintained full CI image)
-- [x] all 4 versions built + boot-verified: ventura (13), sonoma (14), sequoia (15), tahoe (26).
-      Verify runs in a login zsh so keg-only tool PATHs (e.g. node@20 on ventura) resolve.
+- [x] all four cells consume pinned full Xcode images and bake the runner.
+- [x] build and reboot gates require device/simulator SDK compilation and simulator execution.
+- [x] Sequoia: Xcode 26.3, device/simulator SDK 26.2, iOS 26.3 runtime build 23D8133.
+      UIKit compiled for both SDKs and executed in a fresh simulator during build
+      and after reboot (2026-09-12; source `242db57`).
+- [ ] fresh Xcode image boot verification for Ventura, Sonoma and Tahoe.
+      The historical base-image checks only proved command-line tools, not iOS capability.
+      Verify runs tool checks in a login zsh so keg-only tool PATHs resolve.
 
 ## 3. Self-hosting adaptations (vs GitHub's Azure VHDs)
 
@@ -111,7 +116,10 @@ runner-images install scripts are x86-centric, so we install from apt + first-pa
 ## 5. Status
 
 - **Done + verified:** ubuntu 22.04 (77/77) + 24.04 (67/67) full toolsets; windows 2022/2025 full
-  toolset + VS 2022 (win25 = manifest parity PASS); all 4 macOS versions (ventura/sonoma/sequoia/tahoe).
+  toolset + VS 2022 (win25 = manifest parity PASS); historical macOS base images (their version-only checks did not prove Xcode).
+  All four macOS cells now pin full Xcode images and require SDK compilation and
+  simulator execution. Sequoia passed the new build and reboot gates on 2026-09-12;
+  the other three Xcode images still require fresh verification before promotion.
   Images hosted on the NAS.
 - **Excluded until fixed:** Android SDK (#32) + 2 VS extensions (#23) on Windows — both memory-pressure
   build failures, skipped (not failed on) so every build yields a complete image. See the cells' inline
