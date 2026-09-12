@@ -89,7 +89,8 @@ manifest at the pinned ref. See [PARITY.md](PARITY.md) for the per-script checkl
 | `ubuntu-2404-arm64` <sup>(Tart, Apple Silicon)</sup> | broad arm64 toolset <sup>[5]</sup> | ▢ via Tart (`verify ubuntu-2404-arm64`) | browsers/Selenium, Android SDK, cloud CLIs, pwsh, toolcache <sup>[5]</sup> |
 | `windows-2025` | full set + Visual Studio 2022 | ✅ manifest parity | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
 | `windows-2022` | full set + Visual Studio 2022 | ✅ cell <sup>[3]</sup> | Android SDK <sup>[1]</sup>; 2 VS extensions <sup>[2]</sup> |
-| `macos-13/14/15/26` | pinned cirruslabs Xcode + GitHub runner | requires fresh functional gate | n/a <sup>[4]</sup> |
+| `macos-15` | pinned cirruslabs Xcode 26.3 + GitHub runner | ✅ device + simulator compilation and execution, including reboot (2026-09-12) | n/a <sup>[4]</sup> |
+| `macos-13/14/26` | pinned cirruslabs Xcode + GitHub runner | requires fresh functional gate | n/a <sup>[4]</sup> |
 
 Everything else GitHub ships **is** in parity: the languages (Python/Go/Node/Ruby/PHP/Rust/Java
 8-25/Kotlin/…), the toolcache, .NET 8/9/10 SDKs, the databases (MySQL/PostgreSQL/MongoDB), the
